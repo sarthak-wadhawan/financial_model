@@ -465,3 +465,12 @@ Tasks:
 - Test result before push: 52 passed, 4 skipped
 - Push status: Success (new repository, no force push needed)
 - Working tree: Clean except for .gitignore modification (unstaged)
+
+### 2026-10-01 — Comprehensive README Added
+- Added professional root-level README.md with fresh-computer setup guide
+- Documented: prerequisites, clone, venv, install, env config, tests, mock scan, Alpaca scan, CLI commands, artifacts, scoring, project structure, config, troubleshooting, roadmap
+- Verified all documented commands: pytest, scan (mock), explain, validate-run
+- Tests: 52 passed, 4 skipped
+- Mock scan result: 47 symbols processed, 20 ranked, artifacts written
+- GitHub commit: cc446a6 "Add fresh setup and usage guide"
+- Push status: Success
