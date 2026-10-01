@@ -1,0 +1,60 @@
+app:
+  artifact_dir: artifacts/runs
+  timezone: America/New_York
+
+universe:
+  mode: fixed_or_provider
+  include_etfs: false
+  symbols_file: null
+
+market:
+  provider: alpaca
+  benchmark: SPY
+  history_days: 300
+
+eligibility:
+  min_price: 5
+  min_avg_dollar_volume_20d: 50000000
+  min_history_days: 220
+
+scan:
+  top_n: 20
+  final_n: 3
+
+sources:
+  news_lookback_days: 7
+  filings_lookback_days: 45
+  max_news_per_symbol: 8
+  max_filings_per_symbol: 4
+
+llm:
+  enabled: true
+  base_url_env: LLM_BASE_URL
+  api_key_env: LLM_API_KEY
+  model_env: LLM_MODEL
+  max_concurrency: 3
+  timeout_seconds: 90
+  retry_count: 1
+
+scoring:
+  quant:
+    momentum_weight: 0.40
+    trend_weight: 0.25
+    liquidity_weight: 0.15
+    volume_weight: 0.10
+    volatility_weight: 0.10
+  final:
+    quant_weight: 0.80
+    catalyst_weight: 0.20
+
+risk:
+  exclude_earnings_within_days: 0
+  fail_closed_on_invalid_market_data: true
+  invalid_ai_fallback_catalyst_score: 50
+
+options:
+  enabled: false
+
+runtime:
+  cache_enabled: true
+  provider_max_concurrency: 5

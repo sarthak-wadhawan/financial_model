@@ -1,0 +1,50 @@
+app:
+  artifact_dir: artifacts/runs
+  timezone: America/New_York
+eligibility:
+  min_avg_dollar_volume_20d: 50000000.0
+  min_history_days: 220
+  min_price: 5.0
+llm:
+  api_key_env: LLM_API_KEY
+  base_url_env: LLM_BASE_URL
+  enabled: false
+  max_concurrency: 3
+  model_env: LLM_MODEL
+  retry_count: 1
+  timeout_seconds: 90
+market:
+  benchmark: SPY
+  history_days: 300
+  provider: mock
+options:
+  enabled: false
+risk:
+  exclude_earnings_within_days: 0
+  fail_closed_on_invalid_market_data: true
+  invalid_ai_fallback_catalyst_score: 50.0
+runtime:
+  cache_enabled: true
+  provider_max_concurrency: 5
+scan:
+  final_n: 3
+  top_n: 20
+scoring:
+  final:
+    catalyst_weight: 0.2
+    quant_weight: 0.8
+  quant:
+    liquidity_weight: 0.15
+    momentum_weight: 0.4
+    trend_weight: 0.25
+    volatility_weight: 0.1
+    volume_weight: 0.1
+sources:
+  filings_lookback_days: 45
+  max_filings_per_symbol: 4
+  max_news_per_symbol: 8
+  news_lookback_days: 7
+universe:
+  include_etfs: false
+  mode: fixed_or_provider
+  symbols_file: null

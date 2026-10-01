@@ -1,0 +1,57 @@
+trading-copilot/
+├── pyproject.toml
+├── README.md
+├── .env.example
+├── config.example.yaml
+├── src/
+│   └── trading_copilot/
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── cli.py
+│       ├── config.py
+│       ├── logging.py
+│       ├── models/
+│       │   ├── __init__.py
+│       │   ├── market.py
+│       │   ├── features.py
+│       │   ├── sources.py
+│       │   ├── analysis.py
+│       │   └── results.py
+│       ├── providers/
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   ├── alpaca_market.py
+│       │   ├── alpaca_news.py
+│       │   ├── sec_edgar.py
+│       │   ├── options.py
+│       │   └── mock.py
+│       ├── pipeline/
+│       │   ├── __init__.py
+│       │   ├── universe.py
+│       │   ├── features.py
+│       │   ├── eligibility.py
+│       │   ├── quant_score.py
+│       │   ├── source_collection.py
+│       │   ├── ai_analysis.py
+│       │   ├── evidence.py
+│       │   ├── final_rank.py
+│       │   └── report.py
+│       ├── llm/
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   ├── openai_compatible.py
+│       │   ├── prompts.py
+│       │   └── schemas.py
+│       └── storage/
+│           ├── __init__.py
+│           ├── cache.py
+│           ├── runs.py
+│           └── hashes.py
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── fixtures/
+│   └── golden/
+├── artifacts/
+│   └── .gitkeep
+└── docs/
