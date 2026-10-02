@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -28,6 +27,9 @@ logger = logging.getLogger(__name__)
 ALPACA_BASE_URL = "https://data.alpaca.markets"
 ALPACA_PAPER_BASE_URL = "https://paper-api.alpaca.markets"
 
+# Default feed for historical data (IEX as specified)
+DEFAULT_FEED = "iex"
+
 
 class AlpacaMarketDataProvider:
     """Alpaca market data provider with caching and retry logic."""
@@ -40,17 +42,19 @@ class AlpacaMarketDataProvider:
         cache: FileCache | None = None,
         max_symbols_per_request: int = 100,
         timeout_seconds: int = 30,
+        feed: str = DEFAULT_FEED,
     ):
         """
         Initialize Alpaca market data provider.
 
         Args:
-            api_key: Alpaca API key (defaults to ALPACA_API_KEY env var)
-            api_secret: Alpaca API secret (defaults to ALPACA_API_SECRET env var)
+            api_key: Alpaca API key (defaults to APCA_API_KEY_ID env var)
+            api_secret: Alpaca API secret (defaults to APCA_API_SECRET_KEY env var)
             base_url: Alpaca data API base URL
             cache: Optional FileCache instance for caching responses
             max_symbols_per_request: Maximum symbols per API request (Alpaca limit)
             timeout_seconds: HTTP timeout in seconds
+            feed: Data feed to use ("iex" or "sip")
         """
         settings = load_settings()
         alpaca_config = get_alpaca_config(settings)
@@ -61,11 +65,13 @@ class AlpacaMarketDataProvider:
         self.cache = cache
         self.max_symbols_per_request = max_symbols_per_request
         self.timeout = timeout_seconds
+        self.feed = feed
 
         if not self.api_key or not self.api_secret:
             raise ValueError(
                 "Alpaca API credentials not provided. "
-                "Set ALPACA_API_KEY and ALPACA_API_SECRET environment variables."
+                "Set APCA_API_KEY_ID and APCA_API_SECRET_KEY environment variables "
+                "(or legacy ALPACA_API_KEY and ALPACA_API_SECRET)."
             )
 
         # HTTP client with retry logic
@@ -82,13 +88,21 @@ class AlpacaMarketDataProvider:
             "APCA-API-SECRET-KEY": self.api_secret,
         }
 
-    def _cache_key(self, symbols: list[str], start: datetime, end: datetime, timeframe: str = "1Day") -> str:
-        """Generate cache key for a bar request."""
+    def _cache_key(
+        self,
+        symbols: list[str],
+        start: datetime,
+        end: datetime,
+        timeframe: str = "1Day",
+        data_type: str = "bars",
+    ) -> str:
+        """Generate cache key for a request."""
         # Sort symbols for consistent key
         sorted_symbols = sorted(symbols)
         key_parts = [
             "alpaca",
-            "bars",
+            data_type,
+            self.feed,
             timeframe,
             ",".join(sorted_symbols),
             start.date().isoformat(),
@@ -101,7 +115,7 @@ class AlpacaMarketDataProvider:
         """Convert Alpaca bar format to DailyBar model."""
         # Alpaca returns timestamps in RFC3339 format (e.g., "2024-01-15T00:00:00Z")
         timestamp = datetime.fromisoformat(bar["t"].replace("Z", "+00:00"))
-        
+
         return DailyBar(
             symbol=symbol,
             timestamp=timestamp,
@@ -144,10 +158,10 @@ class AlpacaMarketDataProvider:
             "end": end_str,
             "limit": limit,
             "adjustment": "raw",  # No split/dividend adjustment
-            "feed": "sip",  # Use SIP feed for best coverage
+            "feed": self.feed,
         }
 
-        logger.debug("Fetching bars for %d symbols from %s to %s", len(symbols), start_str, end_str)
+        logger.debug("Fetching bars for %d symbols from %s to %s (feed=%s)", len(symbols), start_str, end_str, self.feed)
 
         response = self._client.get("/v2/stocks/bars", params=params)
 
@@ -164,12 +178,12 @@ class AlpacaMarketDataProvider:
 
         # Parse response: {"bars": {"SYMBOL": [...bars...]}}
         bars_by_symbol = data.get("bars", {})
-        
+
         # Convert to list of dicts for each symbol
         result = {}
         for symbol, bars in bars_by_symbol.items():
             result[symbol] = bars
-            
+
         # Ensure all requested symbols have entries (even if empty)
         for symbol in symbols:
             if symbol not in result:
@@ -182,11 +196,15 @@ class AlpacaMarketDataProvider:
         symbols: list[str],
         start: datetime,
         end: datetime,
+        min_trading_sessions: int | None = None,
     ) -> dict[str, list[DailyBar]]:
         """
         Get daily OHLCV bars for multiple symbols.
 
         Handles batching for large symbol lists and uses cache when available.
+        If min_trading_sessions is provided, expands the lookback window until
+        at least that many trading sessions are retrieved for each symbol
+        (up to a maximum of 5 expansion attempts).
         """
         # Ensure timezone-aware
         if start.tzinfo is None:
@@ -194,22 +212,89 @@ class AlpacaMarketDataProvider:
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
 
+        # If no minimum sessions required, use simple fetch
+        if min_trading_sessions is None:
+            return self._get_daily_bars_simple(symbols, start, end)
+
+        # Otherwise, iteratively expand lookback until we have enough sessions
+        current_start = start
+        max_attempts = 5
+        # Approximate trading days per calendar day (252/365 ≈ 0.69)
+        # Use conservative 0.65 to account for holidays
+        trading_day_ratio = 0.65
+
+        for attempt in range(max_attempts):
+            logger.debug("Fetching bars (attempt %d/%d) for %d symbols from %s to %s",
+                         attempt + 1, max_attempts, len(symbols), current_start.date(), end.date())
+            
+            results = self._get_daily_bars_simple(symbols, current_start, end)
+
+            # Check if all symbols have enough sessions
+            all_sufficient = True
+            min_sessions_found = float('inf')
+            for symbol, bars in results.items():
+                session_count = len(bars)
+                min_sessions_found = min(min_sessions_found, session_count)
+                if session_count < min_trading_sessions:
+                    all_sufficient = False
+                    logger.debug("Symbol %s has %d sessions, need %d", symbol, session_count, min_trading_sessions)
+
+            if all_sufficient:
+                logger.info("All %d symbols have ≥%d trading sessions (min found: %d)",
+                            len(symbols), min_trading_sessions, min_sessions_found)
+                return results
+
+            if attempt < max_attempts - 1:
+                # Calculate how many more calendar days we need
+                # If we got X sessions in Y calendar days, we need (target/X) * Y calendar days
+                calendar_days_so_far = (end - current_start).days
+                if min_sessions_found > 0:
+                    required_calendar_days = int(calendar_days_so_far * min_trading_sessions / min_sessions_found)
+                else:
+                    required_calendar_days = calendar_days_so_far * 2
+                # Add 10% buffer
+                required_calendar_days = int(required_calendar_days * 1.1)
+                # Cap at 1000 calendar days (approx 3 years)
+                required_calendar_days = min(required_calendar_days, 1000)
+                
+                new_start = end - timedelta(days=required_calendar_days)
+                if new_start >= current_start:
+                    # Can't expand further
+                    logger.warning("Cannot expand lookback further (at %s)", current_start.date())
+                    break
+                current_start = new_start
+                logger.info("Expanding lookback to %s (%d calendar days) to reach %d sessions",
+                            current_start.date(), required_calendar_days, min_trading_sessions)
+            else:
+                logger.warning("Max attempts reached. Min sessions found: %d, required: %d",
+                               min_sessions_found, min_trading_sessions)
+
+        # Return best effort results
+        return results
+
+    def _get_daily_bars_simple(
+        self,
+        symbols: list[str],
+        start: datetime,
+        end: datetime,
+    ) -> dict[str, list[DailyBar]]:
+        """Internal method to fetch bars without session count validation."""
         # Check cache first
-        cache_key = self._cache_key(symbols, start, end)
+        cache_key = self._cache_key(symbols, start, end, data_type="bars")
         if self.cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
-                logger.info("Cache hit for %d symbols", len(symbols))
+                logger.info("Cache hit for %d symbols (bars)", len(symbols))
                 return cached
 
         # Batch symbols to respect API limits
         all_results: dict[str, list[DailyBar]] = {}
-        
+
         for i in range(0, len(symbols), self.max_symbols_per_request):
             batch = symbols[i:i + self.max_symbols_per_request]
             try:
                 batch_results = self._fetch_bars_batch(batch, start, end)
-                
+
                 # Convert to DailyBar objects
                 for symbol, bars in batch_results.items():
                     daily_bars = []
@@ -220,7 +305,7 @@ class AlpacaMarketDataProvider:
                             logger.warning("Failed to parse bar for %s: %s", symbol, e)
                             continue
                     all_results[symbol] = daily_bars
-                    
+
             except httpx.HTTPStatusError as e:
                 if e.response.status_code >= 500:
                     # Server error - re-raise for retry
@@ -249,10 +334,225 @@ class AlpacaMarketDataProvider:
         benchmark: str,
         start: datetime,
         end: datetime,
+        min_trading_sessions: int | None = None,
     ) -> list[DailyBar]:
         """Get benchmark (e.g., SPY) daily bars."""
-        result = self.get_daily_bars([benchmark], start, end)
+        result = self.get_daily_bars([benchmark], start, end, min_trading_sessions=min_trading_sessions)
         return result.get(benchmark, [])
+
+    # ---------------------------------------------------------------------
+    # Latest price
+    # ---------------------------------------------------------------------
+
+    def get_latest_price(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        """
+        Get latest price information for symbols.
+
+        Returns dict mapping symbol to dict with:
+            - symbol
+            - latest_price
+            - daily_change
+            - daily_change_pct
+            - timestamp
+        """
+        # Use the latest trade endpoint for real-time price
+        # For simplicity, fetch the most recent daily bar which gives us close price
+        # and compute change from previous close
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=5)  # Get last 5 days to compute daily change
+
+        bars = self.get_daily_bars(symbols, start, end)
+
+        result = {}
+        for symbol in symbols:
+            symbol_bars = bars.get(symbol, [])
+            if not symbol_bars:
+                result[symbol] = {
+                    "symbol": symbol,
+                    "latest_price": None,
+                    "daily_change": None,
+                    "daily_change_pct": None,
+                    "timestamp": None,
+                }
+                continue
+
+            # Sort by timestamp
+            symbol_bars.sort(key=lambda b: b.timestamp)
+            latest_bar = symbol_bars[-1]
+            latest_price = latest_bar.close
+            latest_timestamp = latest_bar.timestamp
+
+            # Compute daily change from previous day's close
+            daily_change = None
+            daily_change_pct = None
+            if len(symbol_bars) >= 2:
+                prev_close = symbol_bars[-2].close
+                daily_change = latest_price - prev_close
+                daily_change_pct = (daily_change / prev_close) * 100 if prev_close != 0 else None
+
+            result[symbol] = {
+                "symbol": symbol,
+                "latest_price": latest_price,
+                "daily_change": daily_change,
+                "daily_change_pct": daily_change_pct,
+                "timestamp": latest_timestamp,
+            }
+
+        return result
+
+    # ---------------------------------------------------------------------
+    # Historical IEX quotes
+    # ---------------------------------------------------------------------
+
+    @retry(
+        wait=wait_exponential_jitter(initial=1, max=30),
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type(
+            (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError)
+        ),
+        reraise=True,
+    )
+    def get_historical_quotes(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        limit: int = 10000,
+    ) -> list[dict[str, Any]]:
+        """
+        Get historical IEX quotes for a symbol.
+
+        Returns list of quote dicts with fields:
+            - ap: ask price
+            - as: ask size
+            - ax: ask exchange
+            - bp: bid price
+            - bs: bid size
+            - bx: bid exchange
+            - c: conditions
+            - t: timestamp
+            - z: tape
+        """
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+
+        # Check cache
+        cache_key = self._cache_key([symbol], start, end, data_type="quotes")
+        if self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                logger.info("Cache hit for %s (quotes)", symbol)
+                return cached
+
+        start_str = start.isoformat().replace("+00:00", "Z")
+        end_str = end.isoformat().replace("+00:00", "Z")
+
+        params = {
+            "feed": self.feed,
+            "start": start_str,
+            "end": end_str,
+            "limit": limit,
+        }
+
+        logger.debug("Fetching quotes for %s from %s to %s", symbol, start_str, end_str)
+
+        response = self._client.get(f"/v2/stocks/{symbol}/quotes", params=params)
+
+        if response.status_code == 401:
+            raise ValueError("Alpaca authentication failed: check API credentials")
+        elif response.status_code == 403:
+            raise ValueError("Alpaca access forbidden: check subscription/permissions")
+        elif response.status_code == 429:
+            raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
+
+        response.raise_for_status()
+        data = response.json()
+
+        quotes = data.get("quotes", [])
+
+        # Cache the results
+        if self.cache:
+            self.cache.set(cache_key, quotes)
+
+        return quotes
+
+    # ---------------------------------------------------------------------
+    # Historical IEX trades
+    # ---------------------------------------------------------------------
+
+    @retry(
+        wait=wait_exponential_jitter(initial=1, max=30),
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type(
+            (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError)
+        ),
+        reraise=True,
+    )
+    def get_historical_trades(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        limit: int = 10000,
+    ) -> list[dict[str, Any]]:
+        """
+        Get historical IEX trades for a symbol.
+
+        Returns list of trade dicts with fields:
+            - c: conditions
+            - i: trade ID
+            - p: price
+            - s: size
+            - t: timestamp
+            - x: exchange
+            - z: tape
+        """
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+
+        # Check cache
+        cache_key = self._cache_key([symbol], start, end, data_type="trades")
+        if self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                logger.info("Cache hit for %s (trades)", symbol)
+                return cached
+
+        start_str = start.isoformat().replace("+00:00", "Z")
+        end_str = end.isoformat().replace("+00:00", "Z")
+
+        params = {
+            "feed": self.feed,
+            "start": start_str,
+            "end": end_str,
+            "limit": limit,
+        }
+
+        logger.debug("Fetching trades for %s from %s to %s", symbol, start_str, end_str)
+
+        response = self._client.get(f"/v2/stocks/{symbol}/trades", params=params)
+
+        if response.status_code == 401:
+            raise ValueError("Alpaca authentication failed: check API credentials")
+        elif response.status_code == 403:
+            raise ValueError("Alpaca access forbidden: check subscription/permissions")
+        elif response.status_code == 429:
+            raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
+
+        response.raise_for_status()
+        data = response.json()
+
+        trades = data.get("trades", [])
+
+        # Cache the results
+        if self.cache:
+            self.cache.set(cache_key, trades)
+
+        return trades
 
     def health_check(self) -> bool:
         """Check if Alpaca API is accessible."""

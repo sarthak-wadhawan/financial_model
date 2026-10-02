@@ -5,6 +5,15 @@ from trading_copilot.models.features import EligibilityResult, FeatureRow, Quant
 from trading_copilot.models.sources import EvidenceClaim, SourceDocument
 from trading_copilot.models.analysis import CatalystAnalysis
 from trading_copilot.models.results import FinalCandidate, ResearchBrief, RunManifest
+from trading_copilot.models.events import (
+    EventType,
+    EventStatus,
+    EventImportance,
+    UpsertResult,
+    MarketEvent,
+    EventRevision,
+    EventQueryResult,
+)
 
 __all__ = [
     "SymbolInfo",
@@ -19,4 +28,11 @@ __all__ = [
     "FinalCandidate",
     "ResearchBrief",
     "RunManifest",
+    "EventType",
+    "EventStatus",
+    "EventImportance",
+    "UpsertResult",
+    "MarketEvent",
+    "EventRevision",
+    "EventQueryResult",
 ]

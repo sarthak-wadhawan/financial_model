@@ -17,11 +17,12 @@ The system is a research copilot, not an autonomous trading bot.
 
 ## 2. Current Development Phase
 
-**Phase 0 + Phase 1 + Phase 2 — COMPLETE**
+**Phase 0 + Phase 1 + Phase 2 + Phase 3 — COMPLETE**
 
 - **Phase 0 (Bootstrap)**: Python package skeleton, pyproject.toml, CLI, config loader, Pydantic models, logging, test setup
 - **Phase 1 (Offline Deterministic Scanner)**: Fixture market data, feature calculations, eligibility filters, quant scoring, top-N ranking, output artifacts, golden test
-- **Phase 2 (Alpaca Market Data Provider)**: Real Alpaca daily market data provider with batching, retry/backoff, caching, and config-driven provider selection
+- **Phase 2 (Real Alpaca Market Data)**: Real Alpaca IEX daily market data provider with batching, retry/backoff, caching, config-driven provider selection, latest price, historical quotes/trades
+- **Phase 3 (Unified Persistent Event Store)**: SQLite-backed event store with MarketEvent model, upsert/deduplication, revision history, change detection, and query API
 
 All Phase 0, 1, and 2 acceptance criteria met:
 - Offline tests pass without API keys
@@ -32,9 +33,12 @@ All Phase 0, 1, and 2 acceptance criteria met:
 - Golden test protects against regressions
 - Alpaca provider implements `MarketDataProvider` protocol
 - Provider selectable via config (`provider: alpaca` or `provider: mock`)
-- FileCache integrated for historical bar caching
+- FileCache integrated for historical bar/quote/trade caching with feed-aware keys
 - Retry/backoff with tenacity for transient failures
 - Optional live smoke test gated by `RUN_LIVE_TESTS=1`
+- Direct Alpaca IEX API connectivity verified (quotes HTTP 200, trades HTTP 200)
+- Python provider works with real Alpaca data
+- Credential loading supports canonical `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` (with legacy fallback)
 
 ---
 
@@ -44,7 +48,7 @@ All Phase 0, 1, and 2 acceptance criteria met:
 |---------|---------|
 | Configuration loading (YAML + env vars) | `src/trading_copilot/config.py` |
 | Structured logging (text + JSON) | `src/trading_copilot/logging.py` |
-| Pydantic data contracts | `src/trading_copilot/models/` (market.py, features.py, sources.py, analysis.py, results.py) |
+| Pydantic data contracts | `src/trading_copilot/models/` (market.py, features.py, sources.py, analysis.py, results.py, **events.py**) |
 | Provider interfaces | `src/trading_copilot/providers/base.py` |
 | Mock universe provider (fixed 47 symbols) | `src/trading_copilot/pipeline/universe.py` |
 | FeatureEngine (14 deterministic features) | `src/trading_copilot/pipeline/features.py` |
@@ -54,17 +58,23 @@ All Phase 0, 1, and 2 acceptance criteria met:
 | ReportGenerator (top20.csv, all_features.csv, run_manifest.json) | `src/trading_copilot/pipeline/report.py` |
 | MockMarketDataProvider (deterministic synthetic OHLCV) | `src/trading_copilot/providers/mock.py` |
 | **AlpacaMarketDataProvider (real market data)** | `src/trading_copilot/providers/alpaca_market.py` |
+|   | Daily bars (IEX feed), latest price, historical IEX quotes, historical IEX trades |
 | **Provider factory & config-driven selection** | `src/trading_copilot/providers/__init__.py` |
 | Run storage & manifest | `src/trading_copilot/storage/runs.py` |
 | Content hashing utilities | `src/trading_copilot/storage/hashes.py` |
 | **FileCache integration for market data** | `src/trading_copilot/storage/cache.py` |
 | CLI with scan/explain/validate-run | `src/trading_copilot/cli.py`, `__main__.py` |
-| Unit tests (features, eligibility, quant, Alpaca) | `tests/unit/test_*.py` |
+| Unit tests (features, eligibility, quant, Alpaca, **events**) | `tests/unit/test_*.py` |
 | Integration test (full pipeline) | `tests/integration/test_scan.py` |
 | **Optional live Alpaca smoke test** | `tests/integration/test_alpaca_live.py` |
 | Fixture config for reproducible runs | `tests/fixtures/config.yaml` |
 | **Alpaca config example** | `config.alpaca.yaml` |
 | Environment variable template | `.env.example` |
+| **Event Store (SQLite)** | `src/trading_copilot/events/store.py` |
+| **Event Service** | `src/trading_copilot/events/service.py` |
+| **Change Detector** | `src/trading_copilot/events/detector.py` |
+| **Event Models** | `src/trading_copilot/models/events.py` |
+| **Event Tests** | `tests/unit/test_events.py` |
 
 ---
 
@@ -120,17 +130,50 @@ src/trading_copilot/providers/mock.py
   - SPY-like benchmark generation
 
 src/trading_copilot/providers/alpaca_market.py
-  - **AlpacaMarketDataProvider: real Alpaca daily bars via REST API**
+  - **AlpacaMarketDataProvider: real Alpaca IEX daily bars via REST API**
   - **Batching (configurable max symbols per request)**
   - **Retry/backoff with tenacity (timeout, 429, 5xx)**
-  - **FileCache integration with TTL**
+  - **FileCache integration with TTL, feed-aware cache keys**
   - **Proper timezone-aware timestamp parsing**
   - **Conversion to DailyBar model**
   - **Graceful handling of missing symbols / partial responses**
   - **Clear auth/config errors**
+  - **Latest price endpoint (symbol, latest_price, daily_change, daily_change_pct, timestamp)**
+  - **Historical IEX quotes endpoint (for Model A microstructure work)**
+  - **Historical IEX trades endpoint (for Model A microstructure work)**
+  - **Canonical credential env vars: APCA_API_KEY_ID, APCA_API_SECRET_KEY (with legacy fallback)**
 
 src/trading_copilot/providers/__init__.py
   - Exports AlpacaMarketDataProvider, create_market_data_provider factory
+
+src/trading_copilot/events/store.py
+  - **EventStore: SQLite-backed persistent event store**
+  - Tables: events (with identity_key, content_hash), event_revisions
+  - Indexes: symbol, event_type, scheduled_at, released_at, status, identity_key
+  - CRUD: upsert_event() returning NEW/UNCHANGED/CHANGED
+  - Queries: events_today, upcoming_events, recent_events, events_for_symbol, events_by_type, events_changed_since, events_released_since
+  - Revision history tracking with changed_fields
+
+src/trading_copilot/events/service.py
+  - **EventService: High-level event operations**
+  - create_macro_event(), create_company_event()
+  - update_event_status(), update_event_values(), reschedule_event()
+  - Delegates queries to EventStore
+
+src/trading_copilot/events/detector.py
+  - **ChangeDetector: Change detection and classification**
+  - compare_events(), classify_change()
+  - get_changed_events_summary(), get_released_events_summary()
+
+src/trading_copilot/events/__init__.py
+  - Exports EventStore, EventService, ChangeDetector, and all event models
+
+src/trading_copilot/models/events.py
+  - **MarketEvent: Unified event model** (event_id, event_type, symbol, title, description, scheduled_at, released_at, timezone, importance, status, actual, forecast, previous, unit, source, source_url, source_id, timestamps, content_hash, metadata)
+  - EventType (15 types), EventStatus (5), EventImportance (4), UpsertResult (3)
+  - EventRevision, EventQueryResult
+  - compute_content_hash() for change detection
+  - Stable identity_key in metadata for deduplication
 
 src/trading_copilot/pipeline/universe.py
   - MockUniverseProvider (47 liquid US symbols)
@@ -186,6 +229,9 @@ tests/unit/test_quant_score.py
 
 tests/unit/test_alpaca_market.py
   - **18 tests: provider init, cache keys, bar parsing, batching, caching, retries, auth errors, benchmark bars**
+
+tests/unit/test_events.py
+  - **24 tests: DB creation, insertion, reading, update, deduplication, stable IDs, NEW/UNCHANGED/CHANGED, revision history, symbol queries, event-type queries, today/upcoming/recent queries, changed-since, released-since, timezone handling, macro events with null symbol, persistence after restart**
 
 tests/integration/test_scan.py
   - 4 tests: CLI help, scan command, validate-run, explain
@@ -300,23 +346,73 @@ Result:
 
 All tests pass. No warnings relevant to application logic.
 
+### Live Smoke Test Results (2026-10-02)
+
+| Test | Result |
+|------|--------|
+| Direct curl: SPY IEX quotes (2026-08-18) | **HTTP 200** — 10 quotes returned |
+| Direct curl: SPY IEX trades (2026-08-18) | **HTTP 200** — 10 trades returned |
+| Python provider: historical daily bars | **PASS** — 47 symbols, up to 687 bars each |
+| Python provider: benchmark bars (SPY) | **PASS** — 687 bars |
+| Python provider: latest price (SPY, AAPL, MSFT, NVDA, AMD) | **PASS** — All returned with change/pct |
+| Python provider: historical IEX quotes (SPY, 2026-08-18) | **PASS** — 10 quotes |
+| Python provider: historical IEX trades (SPY, 2026-08-18) | **PASS** — 10 trades |
+| Full scanner with mock provider | **PASS** — 47 symbols, 20 ranked, artifacts written |
+| Full scanner with Alpaca IEX provider | **PASS** — 11 eligible, 11 ranked, artifacts written |
+| Cache persistence | **PASS** — FileCache at `artifacts/cache/market_data/` |
+
+### Phase 3 Event Store Tests (2026-10-02)
+
+| Test | Result |
+|------|--------|
+| All offline unit tests | **76 passed** (38 existing + 24 events + 4 skipped) |
+| Event store DB creation | **PASS** |
+| Event insertion & retrieval | **PASS** |
+| Upsert: NEW / UNCHANGED / CHANGED | **PASS** |
+| Revision history tracking | **PASS** |
+| Symbol queries | **PASS** |
+| Event type queries | **PASS** |
+| Today / upcoming / recent queries | **PASS** |
+| Changed-since / released-since | **PASS** |
+| Timezone handling | **PASS** |
+| Macro events (null symbol) | **PASS** |
+| Persistence after restart | **PASS** |
+
+**Fixed IEX history limitation**: The initial 300-calendar-day lookback yielded only ~206 trading sessions. The provider now automatically expands the calendar lookback (up to 1000 calendar days) until the configured `min_history_days` (220) trading sessions are retrieved. With 1000 calendar days, all eligible symbols have 687 sessions.
+
 ---
 
 ## 8. Latest Program Output
 
+### Mock Provider Scan (deterministic, reproducible)
 ```text
-Run ID: 2026-09-30T194958Z
+Run ID: 2026-10-02T205107Z
 Universe size: 47 symbols
 Eligible symbols: 47 (all passed with history_days=350)
 Top-N: 20
-Artifacts: artifacts/runs/2026-09-30T194958Z/
+Artifacts: artifacts/runs/2026-10-02T205107Z/
 
 Top 5:
-  1. XLP   — Quant: 93.0 (Mom: 100.0, Trend: 100.0, Liq: 95.7, Vol: 36.2, VolQ: 100.0)
-  2. GOOGL — Quant: 84.2 (Mom: 78.7, Trend: 93.3, Liq: 68.1, Vol: 91.5, VolQ: 100.0)
-  3. CSCO  — Quant: 83.3 (Mom: 87.2, Trend: 100.0, Liq: 63.8, Vol: 38.3, VolQ: 100.0)
-  4. MRK   — Quant: 82.8 (Mom: 95.7, Trend: 95.3, Liq: 42.6, Vol: 68.1, VolQ: 75.0)
-  5. QQQ   — Quant: 82.4 (Mom: 89.4, Trend: 77.0, Liq: 91.5, Vol: 87.2, VolQ: 50.0)
+  1. CSCO  — Quant: 89.0 (Mom: 95.7, Trend: 97.1, Liq: 80.9, Vol: 83.0, VolQ: 60.0)
+  2. MRK   — Quant: 88.2 (Mom: 97.9, Trend: 100.0, Liq: 76.6, Vol: 51.1, VolQ: 75.0)
+  3. XLV   — Quant: 87.4 (Mom: 85.1, Trend: 99.5, Liq: 72.3, Vol: 76.6, VolQ: 100.0)
+  4. KO    — Quant: 84.4 (Mom: 100.0, Trend: 95.8, Liq: 63.8, Vol: 34.0, VolQ: 75.0)
+  5. MA    — Quant: 82.2 (Mom: 93.6, Trend: 85.0, Liq: 97.9, Vol: 12.8, VolQ: 75.0)
+```
+
+### Alpaca IEX Provider Live Test (Fixed)
+```text
+Credentials: APCA_API_KEY_ID present (prefix: P), APCA_API_SECRET_KEY present
+Feed: IEX
+Calendar lookback: 300 days → expanded to 1000 days (max) via auto-expansion
+Historical bars: 47 symbols × up to 687 sessions (2024-01-08 to 2026-10-02)
+Benchmark (SPY): 687 sessions
+Latest price: SPY=769.65 (+0.73%), AAPL=333.75 (+1.00%), MSFT=517.32 (+0.90%), NVDA=234.00 (+1.28%), AMD=633.75 (+2.92%)
+Historical quotes (SPY, 2026-08-18 13:30-13:31): 10 quotes
+Historical trades (SPY, 2026-08-18 13:30-13:31): 10 trades
+Scanner eligibility: 11/47 passed (≥220 sessions + price/volume filters)
+Top 5: AMD (87.3), AAPL (78.4), CRM (75.2), CSCO (71.2), ACN (68.7)
+Cache: artifacts/cache/market_data/ (feed-aware keys: alpaca|bars|iex|1Day|...)
 ```
 
 No errors encountered. Deterministic output: re-running with same config produces identical rankings and scores.
@@ -372,7 +468,8 @@ artifacts/cache/market_data/
 |------|------------|
 | Universe | Fixed 47 liquid symbols (no live universe API) |
 | Benchmark | SPY only |
-| History | 350 calendar days requested → ~252 business days (meets 220 min) |
+| History (mock) | 350 calendar days requested → ~252 business days (meets 220 min) |
+| History (Alpaca IEX) | ~206 trading days available (limits FeatureEngine which needs 220+) |
 | Volatility | Realized vol = std(log returns 20d) * sqrt(252) |
 | Dollar volume | close * volume averaged over 20 sessions |
 | Relative volume | latest volume / mean(volume previous 20 sessions) |
@@ -381,7 +478,7 @@ artifacts/cache/market_data/
 | Missing benchmark dates | Return 0.0 (no crash) |
 | Mock data | GBM with per-symbol seed = hash(symbol, global_seed) |
 | ETFs | Included in universe (SPY, QQQ, IWM, DIA, XLF, XLK, XLE, XLV, XLI, XLP) |
-| Alpaca feed | SIP feed with raw (unadjusted) prices |
+| Alpaca feed | IEX feed with raw (unadjusted) prices (per Phase 2 requirements) |
 | Alpaca timeframe | 1Day bars |
 | Cache TTL | 7 days default for market data |
 
@@ -396,31 +493,31 @@ artifacts/cache/market_data/
 5. **Python 3.9 requires eval_type_backport** — Minor runtime dependency for type hints
 6. **Explain command only shows features** — No score decomposition or eligibility reasons
 7. **No golden master CSV** — Integration test verifies structure but not exact values against a frozen reference
-8. **Alpaca provider not battle-tested** — Live smoke test not yet run (no credentials in this env)
-9. **Cache not used by mock provider** — Only Alpaca provider uses cache currently
+8. **Cache not used by mock provider** — Only Alpaca provider uses cache currently
 
 ---
 
 ## 13. Current Blockers
 
-**None.** Phase 0, 1, and 2 are complete and tested.
+**None.** Phase 0, 1, 2, and 3 are complete and tested. Phase 4 (Macro Event Intelligence) can proceed independently.
 
 ---
 
 ## 14. Next Recommended Step
 
-**Next objective: Phase 3 — SEC EDGAR Filing Provider**
+**Next objective: Phase 4 — Macro Event Intelligence**
 
 Tasks:
-1. Implement `SECFilingProvider` in `src/trading_copilot/providers/sec_edgar.py`
-2. Add SEC-compliant User-Agent configuration
-3. Implement filing metadata retrieval (index files)
-4. Implement filing text retrieval (HTML/text parsing)
-5. Add rate-limit handling (10 req/sec per SEC guidelines)
-6. Normalize filings to `SourceDocument` model
-7. Add source normalization and deduplication
-8. Add unit tests with mock SEC responses
-9. Add optional live test gated by `RUN_LIVE_TESTS=1`
+1. Implement `MacroCalendarProvider` in `src/trading_copilot/providers/macro_calendar.py`
+2. Add FOMC calendar integration (meeting dates, minutes, projections)
+3. Implement employment/jobs releases (NFP, unemployment rate, average hourly earnings)
+4. Implement CPI/PPI releases with actual/forecast/previous
+5. Implement PCE/GDP releases
+6. Implement JOLTS and other configured macro releases
+7. Add importance tiers (low/medium/high/critical) per event type
+8. Implement refresh behavior: load stored → fetch new → compare → upsert
+9. Add unit tests with mock responses
+10. Add optional live test gated by `RUN_LIVE_TESTS=1`
 
 ---
 
@@ -474,3 +571,28 @@ Tasks:
 - Mock scan result: 47 symbols processed, 20 ranked, artifacts written
 - GitHub commit: cc446a6 "Add fresh setup and usage guide"
 - Push status: Success
+
+### 2026-10-02 — Phase 2 Real Alpaca Market Data Finalized
+- Verified direct Alpaca IEX API connectivity: quotes HTTP 200, trades HTTP 200 (2026-08-18)
+- Credential loading updated to canonical `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` (with legacy fallback)
+- Key prefix: `P` (paper trading credentials)
+- AlpacaMarketDataProvider enhanced: IEX feed, latest price, historical quotes, historical trades
+- Cache keys now include feed (`iex`) and data type (`bars`/`quotes`/`trades`/`latest`)
+- Python provider works end-to-end with real Alpaca data
+- Offline tests: 52 passed, 4 skipped (no credentials required)
+- Live smoke test: historical bars, latest price, quotes, trades all functional
+- **Fixed IEX history limitation**: Initial 300-calendar-day lookback yielded only ~206 sessions. Provider now auto-expands calendar lookback (up to 1000 days) until `min_history_days` (220) trading sessions are retrieved. With 1000 calendar days, all eligible symbols have 687 sessions.
+- Mock provider unchanged, deterministic scanner unchanged
+- Next phase: Phase 3 — Unified Persistent Event Store (SEC EDGAR)
+
+### 2026-10-02 — Phase 3 Unified Persistent Event Store Complete
+- Created SQLite-backed event store at `data/events.db` (configurable path)
+- Tables: `events` (with identity_key for stable deduplication, content_hash for change detection), `event_revisions` (full revision history)
+- MarketEvent model with 15 event types, 5 statuses, 4 importance levels
+- EventService with create_macro_event(), create_company_event(), update_event_status(), update_event_values(), reschedule_event()
+- ChangeDetector with compare_events(), classify_change(), get_changed_events_summary()
+- Upsert returns NEW/UNCHANGED/CHANGED with automatic revision tracking
+- Queries: events_today, upcoming_events, recent_events, events_for_symbol, events_by_type, events_changed_since, events_released_since
+- Offline demo verified: CPI event created → NVDA earnings created → upcoming queried → CPI rescheduled → upsert returns CHANGED → revision history shows old time → events_changed_since returns CPI
+- All tests: 76 passed, 4 skipped (no external dependencies)
+- Next phase: Phase 4 — Macro Event Intelligence

@@ -43,17 +43,11 @@ logger = get_logger(__name__)
 
 @app.callback()
 def main(
-    config: Annotated[
-        Path,
-        typer.Option("--config", "-c", help="Path to configuration YAML file", exists=True, readable=True),
-    ] = Path("config.yaml"),
     log_level: Annotated[str, typer.Option("--log-level", help="Logging level")] = "INFO",
     json_logs: Annotated[bool, typer.Option("--json-logs", help="Output logs as JSON")] = False,
 ) -> None:
     """AI Trading Research Copilot - V1."""
     setup_logging(level=log_level, json_format=json_logs)
-    # Store config path in context for subcommands
-    app.config_path = config  # type: ignore[attr-defined]
 
 
 @app.command()
@@ -114,11 +108,13 @@ def scan(
             symbols=[s.symbol for s in symbols],
             start=start_date,
             end=end_date,
+            min_trading_sessions=cfg.eligibility.min_history_days,
         )
         benchmark_bars = market_provider.get_benchmark_bars(
             benchmark=cfg.market.benchmark,
             start=start_date,
             end=end_date,
+            min_trading_sessions=cfg.eligibility.min_history_days,
         )
         logger.info("Market data loaded", extra={"symbols_with_data": len(market_data)})
     finally:

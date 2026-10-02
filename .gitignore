@@ -6,3 +6,7 @@ __pycache__/
 *.pyd
 .env
 *.zip
+.venv/
+artifacts/
+src/trading_copilot.egg-info/
+trading-copilot/

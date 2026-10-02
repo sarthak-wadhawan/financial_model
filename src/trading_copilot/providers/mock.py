@@ -27,6 +27,7 @@ class MockMarketDataProvider:
         symbols: list[str],
         start: datetime,
         end: datetime,
+        min_trading_sessions: int | None = None,
     ) -> dict[str, list[DailyBar]]:
         """Generate synthetic daily bars for each symbol."""
         # Ensure timezone-aware
@@ -35,6 +36,7 @@ class MockMarketDataProvider:
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
 
+        # min_trading_sessions is ignored for mock provider (always generates enough data)
         # Generate business days
         dates = self._business_days(start, end)
         
@@ -54,6 +56,7 @@ class MockMarketDataProvider:
         benchmark: str,
         start: datetime,
         end: datetime,
+        min_trading_sessions: int | None = None,
     ) -> list[DailyBar]:
         """Generate synthetic benchmark bars (SPY-like)."""
         if start.tzinfo is None:

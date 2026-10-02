@@ -133,6 +133,10 @@ class Config(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # Canonical Alpaca credential names (preferred)
+    apca_api_key_id: str | None = None
+    apca_api_secret_key: str | None = None
+    # Legacy Alpaca credential names (deprecated, for backwards compatibility)
     alpaca_api_key: str | None = None
     alpaca_api_secret: str | None = None
     llm_base_url: str | None = None
@@ -163,8 +167,23 @@ def get_llm_config(settings: Settings, config: Config) -> dict[str, str | None]:
 
 
 def get_alpaca_config(settings: Settings) -> dict[str, str | None]:
-    """Resolve Alpaca configuration from environment variables."""
+    """Resolve Alpaca configuration from environment variables.
+
+    Priority order (first non-None wins):
+    1. Canonical: APCA_API_KEY_ID / APCA_API_SECRET_KEY (via settings or os.environ)
+    2. Legacy: ALPACA_API_KEY / ALPACA_API_SECRET (via settings or os.environ)
+    """
     return {
-        "api_key": settings.alpaca_api_key or os.environ.get("ALPACA_API_KEY"),
-        "api_secret": settings.alpaca_api_secret or os.environ.get("ALPACA_API_SECRET"),
+        "api_key": (
+            settings.apca_api_key_id
+            or os.environ.get("APCA_API_KEY_ID")
+            or settings.alpaca_api_key
+            or os.environ.get("ALPACA_API_KEY")
+        ),
+        "api_secret": (
+            settings.apca_api_secret_key
+            or os.environ.get("APCA_API_SECRET_KEY")
+            or settings.alpaca_api_secret
+            or os.environ.get("ALPACA_API_SECRET")
+        ),
     }
