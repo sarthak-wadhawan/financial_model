@@ -37,14 +37,17 @@ Output: top20.csv, all_features.csv, run_manifest.json
 | Top-N deterministic ranking with tie-breakers | ✅ Working |
 | Artifact generation (top20, all_features, manifest, config) | ✅ Working |
 | CLI: `scan`, `explain`, `validate-run` | ✅ Working |
-| Unit test suite (38 tests) | ✅ Passing |
+| Unit test suite (38 + 24 events tests) | ✅ Passing |
 | Integration test suite (4 tests) | ✅ Passing |
 | Optional live Alpaca tests (gated) | ✅ Implemented |
 | Structured logging (text + JSON) | ✅ Working |
 | FileCache for market data (TTL-based) | ✅ Working |
 | Config-driven provider selection | ✅ Working |
+| **Unified persistent event store (SQLite)** | ✅ **Phase 3 Complete** |
+| **Event upsert with revision history** | ✅ **Phase 3 Complete** |
+| **Change detection (NEW/UNCHANGED/CHANGED)** | ✅ **Phase 3 Complete** |
 
-**Not yet implemented** (future phases): SEC filings provider, news provider, LLM analysis, catalyst scoring, final top-3 research briefs, options module, broker execution.
+**Not yet implemented** (future phases): SEC filings provider (Phase 4), news provider, LLM analysis, catalyst scoring, final top-3 research briefs, options module, broker execution.
 
 ---
 
@@ -150,10 +153,11 @@ python3 -m pytest -q
 **Expected result**: All tests pass, no failures.
 
 ```
-52 passed, 4 skipped in ~3s
+76 passed, 4 skipped in ~27s
 ```
 
 - 38 unit tests (features, eligibility, quant scoring, Alpaca provider)
+- 24 event store tests (DB creation, insertion, upsert, revision history, queries)
 - 4 integration tests (CLI scan, explain, validate-run, help)
 - 4 live Alpaca tests skipped (require `RUN_LIVE_TESTS=1` and credentials)
 
@@ -455,9 +459,9 @@ Project specifications live in `docs/`. Key reference:
 
 | Item | Status |
 |------|--------|
-| **Completed phases** | Phase 0 (bootstrap), Phase 1 (offline scanner), Phase 2 (Alpaca provider) |
-| **Current phase** | Ready for Phase 3 — SEC EDGAR Filing Provider |
-| **Tests** | 52 passed, 4 skipped (live Alpaca tests) |
+| **Completed phases** | Phase 0 (bootstrap), Phase 1 (offline scanner), Phase 2 (Alpaca provider), **Phase 3 (Unified Event Store)** |
+| **Current phase** | Ready for Phase 4 — Macro Event Intelligence |
+| **Tests** | 76 passed, 4 skipped (live Alpaca tests) |
 | **Major limitation** | Mock data is synthetic (GBM); Alpaca provider not battle-tested in production |
 
 See `docs/PROJECT_STATUS.md` for full development history and next steps.
@@ -470,14 +474,17 @@ Future phases (not yet implemented):
 
 ```
 Market data (✓)
-→ SEC EDGAR filings provider
-→ News provider
-→ Structured AI document analysis
-→ Evidence extraction & validation
-→ Deterministic catalyst scoring
-→ Final top-3 research briefs
-→ Options module
-→ Historical evaluation / run manifest hardening
+→ Unified event store (✓ Phase 3)
+→ Macro event intelligence (Phase 4)
+→ Company calendar / corporate events (Phase 5)
+→ SEC + leadership + insider intelligence (Phase 6)
+→ Earnings intelligence + reaction history (Phase 7)
+→ News + management statement analysis (Phase 8)
+→ Evidence validation + Answer Engine (Phase 9)
+→ Website / dashboard (Phase 10)
+→ Watchlists + calendar + alerts (Phase 11)
+→ Historical event-impact analytics (Phase 12)
+→ Strategy evaluation / paper trading (Phase 13)
 ```
 
 ---
