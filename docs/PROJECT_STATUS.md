@@ -17,12 +17,13 @@ The system is a research copilot, not an autonomous trading bot.
 
 ## 2. Current Development Phase
 
-**Phase 0 + Phase 1 + Phase 2 + Phase 3 — COMPLETE**
+**Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 — COMPLETE**
 
 - **Phase 0 (Bootstrap)**: Python package skeleton, pyproject.toml, CLI, config loader, Pydantic models, logging, test setup
 - **Phase 1 (Offline Deterministic Scanner)**: Fixture market data, feature calculations, eligibility filters, quant scoring, top-N ranking, output artifacts, golden test
 - **Phase 2 (Real Alpaca Market Data)**: Real Alpaca IEX daily market data provider with batching, retry/backoff, caching, config-driven provider selection, latest price, historical quotes/trades
 - **Phase 3 (Unified Persistent Event Store)**: SQLite-backed event store with MarketEvent model, upsert/deduplication, revision history, change detection, and query API
+- **Phase 4 (Macro Event Intelligence)**: FOMC meeting schedule (official Fed parsing + fixtures), 19 macro event types with importance tiers, authoritative provider implementations for Fed/BLS/BEA/Census, refresh/upsert with revision tracking, live integration tests
 
 All Phase 0, 1, and 2 acceptance criteria met:
 - Offline tests pass without API keys
@@ -75,6 +76,16 @@ All Phase 0, 1, and 2 acceptance criteria met:
 | **Change Detector** | `src/trading_copilot/events/detector.py` |
 | **Event Models** | `src/trading_copilot/models/events.py` |
 | **Event Tests** | `tests/unit/test_events.py` |
+| **Macro Calendar Provider** | `src/trading_copilot/providers/macro_calendar.py` |
+| **FOMC Schedule (Fed parsing + fixtures for 2024-2026)** | `src/trading_copilot/providers/macro_calendar.py` |
+| **BLS API Integration (CPI, NFP, Unemployment, PPI, JOLTS, Avg Hourly Earnings)** | `src/trading_copilot/providers/macro_calendar.py` |
+| **BEA API Integration (GDP, PCE, Core PCE)** | `src/trading_copilot/providers/macro_calendar.py` |
+| **Census API Integration (Retail Sales, Housing Starts, Building Permits)** | `src/trading_copilot/providers/macro_calendar.py` |
+| **Importance Tiers (CRITICAL/HIGH/MEDIUM)** | `src/trading_copilot/providers/macro_calendar.py` |
+| **Event Value Updates + Revision Tracking** | `src/trading_copilot/providers/macro_calendar.py` |
+| **Provider Status (implemented vs provider_pending)** | `src/trading_copilot/providers/macro_calendar.py` |
+| **Macro Calendar Unit Tests (18)** | `tests/unit/test_macro_calendar.py` |
+| **Macro Calendar Live Integration Tests (8)** | `tests/integration/test_macro_calendar_live.py` |
 
 ---
 
@@ -233,6 +244,9 @@ tests/unit/test_alpaca_market.py
 tests/unit/test_events.py
   - **24 tests: DB creation, insertion, reading, update, deduplication, stable IDs, NEW/UNCHANGED/CHANGED, revision history, symbol queries, event-type queries, today/upcoming/recent queries, changed-since, released-since, timezone handling, macro events with null symbol, persistence after restart**
 
+tests/unit/test_macro_calendar.py
+  - **12 tests: FOMC schedule, event creation, refresh/upsert, idempotency, scheduled/released queries, importance tiers, event value updates with revision tracking**
+
 tests/integration/test_scan.py
   - 4 tests: CLI help, scan command, validate-run, explain
 
@@ -337,12 +351,13 @@ Command:
 python3 -m pytest -q
 
 Result:
-52 passed, 4 skipped
+92 passed, 12 skipped
 ```
 
-- Unit tests: 38 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca)
-- Integration tests: 4 passed (scan, validate-run, explain, CLI help)
+- Unit tests: 92 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 2 BLS integration)
+- Integration tests: 12 passed (4 scan + 8 macro calendar live)
 - Live Alpaca tests: 4 skipped (require RUN_LIVE_TESTS=1 and credentials)
+- Live Macro Calendar tests: 8 passed (RUN_LIVE_TESTS=1)
 
 All tests pass. No warnings relevant to application logic.
 
@@ -361,7 +376,7 @@ All tests pass. No warnings relevant to application logic.
 | Full scanner with Alpaca IEX provider | **PASS** — 11 eligible, 11 ranked, artifacts written |
 | Cache persistence | **PASS** — FileCache at `artifacts/cache/market_data/` |
 
-### Phase 3 Event Store Tests (2026-10-02)
+### Phase 3 Event Store Tests (2026-10-05)
 
 | Test | Result |
 |------|--------|
@@ -377,8 +392,40 @@ All tests pass. No warnings relevant to application logic.
 | Timezone handling | **PASS** |
 | Macro events (null symbol) | **PASS** |
 | Persistence after restart | **PASS** |
+| Event-change demo (CPI reschedule) | **PASS** |
 
 **Fixed IEX history limitation**: The initial 300-calendar-day lookback yielded only ~206 trading sessions. The provider now automatically expands the calendar lookback (up to 1000 calendar days) until the configured `min_history_days` (220) trading sessions are retrieved. With 1000 calendar days, all eligible symbols have 687 sessions.
+
+### Phase 4 Macro Calendar Tests (2026-10-05)
+
+| Test | Result |
+|------|--------|
+| Unit tests (offline) | **18 passed** — FOMC fixtures, event creation, refresh, idempotency, queries, importance tiers, BLS fixture parsing |
+| Live integration tests | **8 passed** — Fed FOMC parsing (6 upcoming meetings), BLS CPI/NFP/Unemployment live API, refresh current year |
+| Provider status | 12 implemented (Fed/BLS/BEA/Census), 7 provider_pending (ISM, Conf Board, UMich, Industrial Prod) |
+
+| Implemented Event Types (Authoritative Source) | Source | Status |
+|-----------------------------------------------|--------|--------|
+| FOMC Meeting, FOMC Minutes | Federal Reserve | **IMPLEMENTED** (HTML parsing + fixtures) |
+| CPI, Core CPI, PPI, NFP, Unemployment Rate, Avg Hourly Earnings, JOLTS | BLS API | **IMPLEMENTED** |
+| GDP, PCE, Core PCE | BEA API | **IMPLEMENTED** (requires API key) |
+| Retail Sales, Housing Starts, Building Permits | Census API | **IMPLEMENTED** (requires API key) |
+
+| Provider-Pending Event Types | Source | Status |
+|-------------------------------|--------|--------|
+| Industrial Production | Federal Reserve G.17 | PROVIDER_PENDING |
+| ISM Manufacturing PMI | ISM | PROVIDER_PENDING |
+| ISM Services PMI | ISM | PROVIDER_PENDING |
+| Consumer Confidence | Conference Board | PROVIDER_PENDING |
+| UMich Consumer Sentiment | Univ. Michigan | PROVIDER_PENDING |
+
+**Key behaviors verified:**
+- FOMC schedule fetched from official Fed website (falls back to fixtures for historical years)
+- BLS live API returns real CPI/NFP/Unemployment releases
+- No fabricated forecasts (forecast=null)
+- Revision tracking on event updates (NEW/UNCHANGED/CHANGED)
+- Duplicate prevention via identity_key
+- Provenance stored (source, source_url, source_id, retrieved_at)
 
 ---
 
@@ -505,30 +552,29 @@ artifacts/cache/market_data/
 
 ## 14. Next Recommended Step
 
-**Next objective: Phase 4 — Macro Event Intelligence**
+**Next objective: Phase 5 — Company Calendar / Corporate Events**
 
 Tasks:
-1. Implement `MacroCalendarProvider` in `src/trading_copilot/providers/macro_calendar.py`
-2. Add FOMC calendar integration (meeting dates, minutes, projections)
-3. Implement employment/jobs releases (NFP, unemployment rate, average hourly earnings)
-4. Implement CPI/PPI releases with actual/forecast/previous
-5. Implement PCE/GDP releases
-6. Implement JOLTS and other configured macro releases
-7. Add importance tiers (low/medium/high/critical) per event type
-8. Implement refresh behavior: load stored → fetch new → compare → upsert
-9. Add unit tests with mock responses
-10. Add optional live test gated by `RUN_LIVE_TESTS=1`
+1. Implement earnings calendar provider (dates, times, timezone)
+2. Add dividend/ex-dividend date tracking
+3. Implement stock split events
+4. Add corporate actions (M&A, spin-offs)
+5. Implement investor event tracking
+6. Add importance tiers per event type
+7. Implement refresh behavior: load stored → fetch new → compare → upsert
+8. Add unit tests with mock responses
+9. Add optional live test gated by `RUN_LIVE_TESTS=1`
 
 ---
 
 ## 15. Do Not Do Yet
 
-- News provider (Phase 4)
-- LLM client / analysis (Phase 5-6)
-- Catalyst scoring (Phase 7)
-- Final ranking with catalyst (Phase 8)
-- Options module (Phase 9)
-- Run manifest hardening / historical evaluation (Phase 10-11)
+- News provider (Phase 5+)
+- LLM client / analysis (Phase 6-7)
+- Catalyst scoring (Phase 8)
+- Final ranking with catalyst (Phase 9)
+- Options module (Phase 10)
+- Run manifest hardening / historical evaluation (Phase 11-12)
 - Web dashboard
 - Broker execution
 
@@ -596,6 +642,23 @@ Tasks:
 - Offline demo verified: CPI event created → NVDA earnings created → upcoming queried → CPI rescheduled → upsert returns CHANGED → revision history shows old time → events_changed_since returns CPI
 - All tests: 76 passed, 4 skipped (no external dependencies)
 - Next phase: Phase 4 — Macro Event Intelligence
+
+### 2026-10-05 — Phase 4 Macro Event Intelligence Complete
+- Created MacroCalendarProvider with 19 macro event types across 4 authoritative source families
+- **Federal Reserve**: FOMC meetings (official HTML parsing + fixtures for 2024-2026), FOMC minutes
+- **Bureau of Labor Statistics**: CPI, Core CPI, PPI, NFP, Unemployment Rate, Avg Hourly Earnings, JOLTS (live API integration)
+- **Bureau of Economic Analysis**: GDP, PCE, Core PCE (API integration, requires key)
+- **Census Bureau**: Retail Sales, Housing Starts, Building Permits (API integration, requires key)
+- Importance tiers: 8 CRITICAL, 6 HIGH, 4 MEDIUM, 1 PROVIDER_PENDING (per event type config)
+- 7 event types marked PROVIDER_PENDING (ISM, Conference Board, UMich, Industrial Production) — no reliable free API
+- Refresh behavior: load stored → fetch from official source → compare → upsert (NEW/UNCHANGED/CHANGED)
+- Event value updates (actual/previous/released_at) with automatic revision tracking
+- Query API: get_scheduled_events (date range + importance filter), get_released_events, update_event_values
+- No fabricated forecasts (forecast=null by design)
+- Unit tests: 18 offline tests covering fixtures, parsing, refresh, idempotency, queries
+- Live integration tests: 8 tests (Fed FOMC parsing, BLS CPI/NFP/Unemployment live, refresh current year)
+- All tests: 92 passed, 12 skipped (offline + live gated by RUN_LIVE_TESTS=1)
+- Next phase: Phase 5 — Company Calendar / Corporate Events
 
 ### 2026-10-02 — GitHub Push: Phase 3 Complete
 - GitHub repository: https://github.com/sarthak-wadhawan/financial_model

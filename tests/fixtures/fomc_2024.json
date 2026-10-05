@@ -1,0 +1,58 @@
+[
+  {
+    "meeting_date": "2024-01-30",
+    "meeting_end": "2024-01-31",
+    "statement_date": "2024-01-31",
+    "minutes_date": "2024-02-21",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2024-03-19",
+    "meeting_end": "2024-03-20",
+    "statement_date": "2024-03-20",
+    "minutes_date": "2024-04-10",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2024-04-30",
+    "meeting_end": "2024-05-01",
+    "statement_date": "2024-05-01",
+    "minutes_date": "2024-05-22",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2024-06-11",
+    "meeting_end": "2024-06-12",
+    "statement_date": "2024-06-12",
+    "minutes_date": "2024-07-03",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2024-07-30",
+    "meeting_end": "2024-07-31",
+    "statement_date": "2024-07-31",
+    "minutes_date": "2024-08-21",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2024-09-17",
+    "meeting_end": "2024-09-18",
+    "statement_date": "2024-09-18",
+    "minutes_date": "2024-10-09",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2024-11-06",
+    "meeting_end": "2024-11-07",
+    "statement_date": "2024-11-07",
+    "minutes_date": "2024-11-26",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2024-12-17",
+    "meeting_end": "2024-12-18",
+    "statement_date": "2024-12-18",
+    "minutes_date": "2025-01-08",
+    "type": "scheduled"
+  }
+]

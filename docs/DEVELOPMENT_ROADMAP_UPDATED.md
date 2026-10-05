@@ -42,12 +42,13 @@ Deliver:
 
 ## Phase 5 — Company Calendar / Corporate Events
 Deliver:
-- earnings dates/time
+- earnings dates/time (with timezone)
 - dividend/ex-dividend
 - splits
 - corporate actions
 - investor events
 - M&A/spin-off events where available
+- **Preserve structured fields needed for downstream impact reasoning: company_impact, stock_bias, confidence, time_horizon**
 
 ## Phase 6 — SEC + Leadership + Insider Intelligence
 Deliver:
@@ -57,6 +58,7 @@ Deliver:
 - leadership changes
 - insider transaction classification
 - source preservation
+- **Expose evidence and potential company relevance for interpretation engine**
 
 ## Phase 7 — Earnings Intelligence + Reaction History
 Deliver:
@@ -66,6 +68,7 @@ Deliver:
 - after-hours / next-day / 5-session reaction
 - earnings history
 - evidence-backed explanations
+- **Include surprise, guidance change, reaction, and inputs needed for scenario analysis (base/bull/bear cases)**
 
 ## Phase 8 — News + Management Statement Analysis
 Deliver:
@@ -74,10 +77,13 @@ Deliver:
 - deduplication
 - structured AI extraction
 - source-backed catalyst/risk claims
+- **Produce structured evidence for interpretation engine, not generic summaries**
 
-## Phase 9 — Evidence Validation + Answer Engine
+## Phase 9 — Interpretation + Impact Engine / Answer Engine
 Deliver:
 - evidence validator
+- **Interpretation Engine: What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon?**
+- **Scenario Analysis: Base case / Bull case / Bear case / What would change the view**
 - Why is it moving?
 - What changed?
 - Investor concerns
@@ -87,6 +93,8 @@ Deliver:
 - Next important event
 - market morning answers
 - stock research brief
+- **Term Definition Service (hover/tap popovers + Learn more links)**
+- **Zero-LLM Core: all above works with LLM_ENABLED=false**
 
 ## Phase 10 — Website / Dashboard
 Deliver:
@@ -97,8 +105,14 @@ Deliver:
 - scanner
 - stock page
 - price chart
-- answer-focused UI
+- **answer-focused UI with Interpretation Engine output**
+- **Why It Matters + Market Impact sections**
+- **Term hover/tap definitions + Learn More links**
+- **Scenario sections (Base / Bull / Bear)**
+- **Company Impact vs Stock Impact display**
 - source links
+- **progressive disclosure**
+- **responsive/mobile behavior**
 
 ## Phase 11 — Watchlists + Calendar + Alerts
 Deliver:
@@ -111,8 +125,9 @@ Deliver:
 Deliver:
 - SPY reaction around macro events
 - stock reaction around earnings/company events
+- **Validate relationships used in impact statements (calibration)**
 
-## Phase 13 — Strategy Evaluation / Paper Trading
+## Phase 13 — Strategy Evaluation / Paper Trading + Autonomous Model Discovery
 Deliver:
 - cost-aware momentum
 - PEAD
@@ -121,8 +136,15 @@ Deliver:
 - options-premium research
 - Model A filter research
 - paper-only workflows before any future execution
+- **Autonomous Model Discovery: experiment registry, evaluation contracts, dataset versioning, leaderboard, promotion gate, leakage audit, competing hypotheses, reproducible experiments**
 
-## Rule
+## Phase 14 — Deployment Hardening / Cross-Device Release
+Deliver:
+- browser inference where appropriate
+- serverless backend for secrets/data
+- mobile performance
+- cross-device testing
+- security review
 
 Only implement the current phase.
 

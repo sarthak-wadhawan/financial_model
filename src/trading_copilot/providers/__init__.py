@@ -10,6 +10,7 @@ from trading_copilot.providers.base import (
 )
 from trading_copilot.providers.mock import MockMarketDataProvider
 from trading_copilot.providers.alpaca_market import AlpacaMarketDataProvider, create_market_data_provider
+from trading_copilot.providers.macro_calendar import MacroCalendarProvider
 
 __all__ = [
     "UniverseProvider",
@@ -21,4 +22,5 @@ __all__ = [
     "MockMarketDataProvider",
     "AlpacaMarketDataProvider",
     "create_market_data_provider",
+    "MacroCalendarProvider",
 ]

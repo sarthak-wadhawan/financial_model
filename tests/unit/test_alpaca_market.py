@@ -33,8 +33,13 @@ class TestAlpacaMarketDataProvider:
             yield provider
 
     def test_init_requires_credentials(self):
-        with pytest.raises(ValueError, match="Alpaca API credentials not provided"):
-            AlpacaMarketDataProvider(api_key=None, api_secret=None)
+        """Test that provider raises ValueError when no credentials are available."""
+        # Need to mock the config loading to return empty credentials
+        with patch("trading_copilot.providers.alpaca_market.get_alpaca_config") as mock_get_config:
+            mock_get_config.return_value = {"api_key": None, "api_secret": None}
+            with patch("httpx.Client"):
+                with pytest.raises(ValueError, match="Alpaca API credentials not provided"):
+                    AlpacaMarketDataProvider(api_key=None, api_secret=None)
 
     def test_init_with_explicit_credentials(self):
         with patch("httpx.Client"):

@@ -42,17 +42,11 @@ logger = get_logger(__name__)
 
 @app.callback()
 def main(
-    config: Annotated[
-        Path,
-        typer.Option("--config", "-c", help="Path to configuration YAML file", exists=True, readable=True),
-    ] = Path("config.yaml"),
     log_level: Annotated[str, typer.Option("--log-level", help="Logging level")] = "INFO",
     json_logs: Annotated[bool, typer.Option("--json-logs", help="Output logs as JSON")] = False,
 ) -> None:
     """AI Trading Research Copilot - V1."""
     setup_logging(level=log_level, json_format=json_logs)
-    # Store config path in context for subcommands
-    app.config_path = config  # type: ignore[attr-defined]
 
 
 @app.command()

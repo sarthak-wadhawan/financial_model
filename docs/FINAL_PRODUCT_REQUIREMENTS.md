@@ -392,6 +392,88 @@ For every important answer preserve where available:
 
 Prefer primary sources. Preserve conflicts. If evidence is insufficient, say so.
 
+## Interpretation Engine (Core Product Behavior)
+
+The central value of the product is interpretation + impact. Every meaningful event must answer:
+
+```text
+WHAT HAPPENED?
+WHAT DOES IT MEAN?
+WHY DOES IT MATTER?
+HOW DOES IT AFFECT THE COMPANY?
+HOW COULD IT AFFECT THE STOCK?
+WHAT IS THE TIME HORIZON?
+WHAT IS THE BASE CASE?
+WHAT IS THE BULL CASE?
+WHAT IS THE BEAR CASE?
+WHAT EVIDENCE SUPPORTS THIS?
+WHAT WOULD CHANGE THE VIEW?
+WHAT IS THE CONFIDENCE?
+```
+
+These are not optional UI enhancements — they are core product behavior. Every research brief, stock page section, and answer must address these questions using evidence.
+
+### Company Impact vs Stock Impact
+
+Store and represent separately:
+
+- **company_impact**: Fundamental business impact (e.g., "guidance raised 5%, margin expansion likely")
+- **stock_bias**: Directional market expectation (e.g., "moderately bullish", "neutral", "bearish")
+- **confidence**: Low / Medium / High
+- **time_horizon**: Days / Weeks / Months / Quarters
+
+Company impact ≠ stock impact. A company may have positive fundamentals while the stock sells off (or vice versa). Both must be explicit.
+
+### Scenario Analysis
+
+Every interpretation must include:
+
+- **BASE CASE**: Most likely outcome with evidence
+- **BULL CASE**: Upside scenario with trigger conditions
+- **BEAR CASE**: Downside scenario with trigger conditions
+- **WHAT WOULD CHANGE THE VIEW**: Specific evidence that would invalidate the base case
+
+### Term UX — Definitions on Demand
+
+Do not use repeated question-mark icons.
+
+- **Desktop**: Hover/focus any financial term → short local definition popover
+- **Mobile**: Tap term → definition popover
+
+Popover may include:
+- **Learn more** → external reference link
+
+External reference priority:
+1. Authoritative official source (e.g., SEC.gov, FederalReserve.gov, BLS.gov)
+2. Reputable educational source (e.g., Investopedia, corporate finance institute)
+3. Wikipedia when appropriate
+
+Why It Matters and Market Impact remain inside our application — they are our interpretation.
+
+### Zero-LLM Core
+
+All core functionality must work with:
+
+```bash
+LLM_ENABLED=false
+```
+
+Optional local/free AI may enhance qualitative explanation later (Phase 8+). The deterministic quant scanner, event store, evidence validation, answer engine, and website must function without any LLM.
+
+### Autonomous Model Discovery (Separate from Model A)
+
+The Trading Copilot research system is distinct from Model A (an independent SPY microstructure experiment).
+
+Model discovery must:
+- Use independent competing hypotheses (not intuition)
+- Apply common chronological evaluation contract (no leakage)
+- Audit for leakage before comparison
+- Run reproducible experiments with frozen data/target/features
+- Maintain a leaderboard with validation + holdout metrics, stability, complexity, inference cost
+- Enforce promotion gate: baseline beaten, holdout positive, stability acceptable, complexity justified, reproducible, integration safe
+
+Model A is never given preferential treatment. If tested in Trading Copilot, it enters as one candidate hypothesis among many.
+
 ## Final architecture
 
 ```text

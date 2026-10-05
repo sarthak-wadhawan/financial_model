@@ -1,0 +1,58 @@
+[
+  {
+    "meeting_date": "2026-01-27",
+    "meeting_end": "2026-01-28",
+    "statement_date": "2026-01-28",
+    "minutes_date": "2026-02-18",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2026-03-17",
+    "meeting_end": "2026-03-18",
+    "statement_date": "2026-03-18",
+    "minutes_date": "2026-04-08",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2026-04-28",
+    "meeting_end": "2026-04-29",
+    "statement_date": "2026-04-29",
+    "minutes_date": "2026-05-20",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2026-06-09",
+    "meeting_end": "2026-06-10",
+    "statement_date": "2026-06-10",
+    "minutes_date": "2026-07-01",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2026-07-28",
+    "meeting_end": "2026-07-29",
+    "statement_date": "2026-07-29",
+    "minutes_date": "2026-08-19",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2026-09-15",
+    "meeting_end": "2026-09-16",
+    "statement_date": "2026-09-16",
+    "minutes_date": "2026-10-07",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2026-11-04",
+    "meeting_end": "2026-11-05",
+    "statement_date": "2026-11-05",
+    "minutes_date": "2026-11-24",
+    "type": "scheduled"
+  },
+  {
+    "meeting_date": "2026-12-15",
+    "meeting_end": "2026-12-16",
+    "statement_date": "2026-12-16",
+    "minutes_date": "2027-01-06",
+    "type": "scheduled"
+  }
+]

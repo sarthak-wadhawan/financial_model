@@ -375,6 +375,22 @@ class EventStore:
             row = cursor.fetchone()
             return self._row_to_event(row) if row else None
 
+    def get_event_by_source_id(self, source_id: str, event_type: EventType | None = None) -> Optional[MarketEvent]:
+        """Get a single event by source_id and optionally event_type."""
+        with self._conn() as conn:
+            if event_type:
+                cursor = conn.execute(
+                    "SELECT * FROM events WHERE source_id = ? AND event_type = ?",
+                    (source_id, event_type.value),
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT * FROM events WHERE source_id = ?",
+                    (source_id,),
+                )
+            row = cursor.fetchone()
+            return self._row_to_event(row) if row else None
+
     def events_today(
         self, timezone: str = "UTC", limit: int = 100, offset: int = 0
     ) -> list[MarketEvent]:
