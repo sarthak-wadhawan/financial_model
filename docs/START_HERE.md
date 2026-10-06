@@ -60,40 +60,38 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | 2 | ✅ COMPLETE | Alpaca IEX daily bars, batching, retry/backoff, caching, provider selection, live smoke tests |
 | 3 | ✅ COMPLETE | SQLite Event Store, MarketEvent model, upsert/dedupe, revision history, change detection, queries |
 | 4 | ✅ COMPLETE | MacroCalendarProvider: FOMC (Fed parsing + corrected fixtures: Oct 27-28, Dec 8-9 2026), BLS API (CPI/NFP/Unemployment/PPI/JOLTS), BEA API (GDP/PCE), Census API (Retail/Housing), importance tiers, refresh/upsert, revision tracking, live tests |
+| 5 | ✅ COMPLETE | EarningsCalendarProvider (fixtures, multi-source ready), CorporateActionsProvider (Alpaca API live), EventType.EARNINGS/DIVIDEND/STOCK_SPLIT/MERGER_ACQUISITION/SPINOFF/CORPORATE_ACTION, importance tiers, refresh/upsert with revision tracking, live tests |
 
 ---
 
 ## Current Phase
 
-### Phase 5 — Company Calendar / Corporate Events
+### Phase 6 — SEC + Leadership + Insider Intelligence
 
-**Goal**: Implement earnings calendar, dividends, splits, corporate actions, investor events. Preserve structured FACTS and EVIDENCE for downstream Phase 9 Interpretation Engine.
+**Goal**: Implement EDGAR integration for SEC filings (8-K, 10-Q, 10-K, Form 4), track leadership changes (CEO/CFO), and insider transaction classification.
 
 **State**: Not started.
 
 **Architecture**:
-- Phase 5 = RAW EVENT/EVIDENCE INGESTION ONLY
+- Phase 6 = RAW FILING/LEADERSHIP/INSIDER EVENT INGESTION ONLY
 - Phase 9 = INTERPRETATION ENGINE (computes company_impact, stock_bias, scenarios, confidence, time_horizon)
-- Do NOT populate `company_impact`, `stock_bias`, `base_case`, `bull_case`, `bear_case`, `confidence`, `time_horizon` in Phase 5
+- Do NOT populate `company_impact`, `stock_bias`, `base_case`, `bull_case`, `bear_case`, `confidence`, `time_horizon` in Phase 6
 
 **Must Preserve for Phase 9**:
-- Earnings: date/time/timezone, EPS actual/consensus, revenue actual/consensus, guidance, management commentary source
-- Dividends: ex-dividend date, payment date, amount, type
-- Splits: ratio, effective date
-- Corporate actions: type, terms, dates, source documents
-- Investor events: date, type, presentation materials
+- Filings: 8-K items, 10-Q/10-K sections, Form 4 transactions, source documents
+- Leadership: current CEO/CFO, appointment/departure dates, replacement announcements
+- Insiders: name, role, transaction date, filing date, buy/sell/other, shares, price/value, holdings after, 10b5-1 indicator
 - All with provenance: source, source_url, source_id, retrieved_at
 
 **Next Actions**:
-1. EarningsCalendarProvider (dates, times, timezone)
-2. Dividend/ex-dividend tracking
-3. Stock split events
-4. Corporate actions (M&A, spin-offs)
-5. Investor events
-6. Importance tiers per event type
-7. Refresh behavior: load → fetch → compare → upsert
-8. Unit tests with mock responses
-9. Live test gated by `RUN_LIVE_TESTS=1`
+1. FilingProvider (EDGAR integration: 8-K, 10-Q, 10-K, Form 4)
+2. Leadership tracking (CEO/CFO current, changes)
+3. Insider transaction classification
+4. Source preservation
+5. Importance tiers per event type
+6. Refresh behavior: load → fetch → compare → upsert
+7. Unit tests with mock responses
+8. Live test gated by `RUN_LIVE_TESTS=1`
 
 ---
 
@@ -141,7 +139,8 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | BEA (Bureau of Economic Analysis) | ⚠️ IMPLEMENTED / CREDENTIAL REQUIRED | GDP, PCE, Core PCE — needs free API key |
 | Census Bureau | ⚠️ IMPLEMENTED / CREDENTIAL REQUIRED | Retail Sales, Housing Starts, Building Permits — needs free API key |
 | SEC EDGAR | 🔄 PROVIDER PENDING | Phase 6 |
-| Earnings Calendar | 🔄 PROVIDER PENDING | Phase 5 |
+| Earnings Calendar | ✅ IMPLEMENTED | Phase 5 (fixtures, multi-source ready: Alpha Vantage, FMP, Polygon, Twelve Data) |
+| Corporate Actions (Alpaca) | ✅ VERIFIED LIVE | Phase 5 (dividends, splits, mergers, spin-offs) |
 | News/Management | 🔄 PROVIDER PENDING | Phase 8 |
 
 ---
@@ -149,9 +148,9 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 ## Tests
 
 ```
-Offline:    92 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 2 BLS fixture)
-Live:       8 passed (Fed FOMC parsing, BLS CPI/NFP/Unemployment, refresh current year)
-Skipped:    12 (4 Alpaca + 8 macro when RUN_LIVE_TESTS not set)
+Offline:    126 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 15 earnings, 19 corporate actions, 2 BLS fixture)
+Live:       14 passed (Fed FOMC parsing, BLS CPI/NFP/Unemployment, earnings fixture refresh, corporate actions live refresh, symbol/action filters)
+Skipped:    12 (4 Alpaca + 8 macro + 2 earnings + 4 corporate when RUN_LIVE_TESTS not set)
 Last run:   2026-10-06
 ```
 
@@ -200,9 +199,9 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 ## NEXT ACTION
 
-**Implement Phase 5 — Company Calendar / Corporate Events** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
+**Implement Phase 6 — SEC + Leadership + Insider Intelligence** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
 
-Start with `EarningsCalendarProvider` for earnings dates/times/timezone, then dividend/ex-dividend, splits, corporate actions, investor events. Preserve structured fields for downstream interpretation engine.
+Start with `FilingProvider` for EDGAR integration (8-K, 10-Q, 10-K, Form 4), then leadership tracking (CEO/CFO), insider transaction classification, and source preservation. Preserve structured fields for downstream interpretation engine.
 
 ---
 

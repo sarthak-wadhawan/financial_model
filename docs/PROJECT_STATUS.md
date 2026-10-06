@@ -17,13 +17,14 @@ The system is a research copilot, not an autonomous trading bot.
 
 ## 2. Current Development Phase
 
-**Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 — COMPLETE**
+**Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 — COMPLETE**
 
 - **Phase 0 (Bootstrap)**: Python package skeleton, pyproject.toml, CLI, config loader, Pydantic models, logging, test setup
 - **Phase 1 (Offline Deterministic Scanner)**: Fixture market data, feature calculations, eligibility filters, quant scoring, top-N ranking, output artifacts, golden test
 - **Phase 2 (Real Alpaca Market Data)**: Real Alpaca IEX daily market data provider with batching, retry/backoff, caching, config-driven provider selection, latest price, historical quotes/trades
 - **Phase 3 (Unified Persistent Event Store)**: SQLite-backed event store with MarketEvent model, upsert/deduplication, revision history, change detection, and query API
 - **Phase 4 (Macro Event Intelligence)**: FOMC meeting schedule (official Fed parsing + fixtures), 19 macro event types with importance tiers, authoritative provider implementations for Fed/BLS/BEA/Census, refresh/upsert with revision tracking, live integration tests
+- **Phase 5 (Company Calendar / Corporate Events)**: EarningsCalendarProvider (fixture-based, multi-source ready), CorporateActionsProvider (Alpaca API: dividends, splits, mergers, spin-offs, corporate actions), EventType.EARNINGS/DIVIDEND/STOCK_SPLIT/MERGER_ACQUISITION/SPINOFF/CORPORATE_ACTION, importance tiers, refresh/upsert with revision tracking, live integration tests
 
 All Phase 0, 1, and 2 acceptance criteria met:
 - Offline tests pass without API keys
@@ -86,6 +87,13 @@ All Phase 0, 1, and 2 acceptance criteria met:
 | **Provider Status (implemented vs provider_pending)** | `src/trading_copilot/providers/macro_calendar.py` |
 | **Macro Calendar Unit Tests (18)** | `tests/unit/test_macro_calendar.py` |
 | **Macro Calendar Live Integration Tests (8)** | `tests/integration/test_macro_calendar_live.py` |
+| **Earnings Calendar Provider** | `src/trading_copilot/providers/earnings_calendar.py` |
+| **Earnings Calendar Fixtures** | `tests/fixtures/earnings_calendar.json` |
+| **Earnings Calendar Unit Tests (15)** | `tests/unit/test_earnings_calendar.py` |
+| **Earnings Calendar Live Tests (2)** | `tests/integration/test_earnings_calendar_live.py` |
+| **Corporate Actions Provider** | `src/trading_copilot/providers/corporate_actions.py` |
+| **Corporate Actions Unit Tests (19)** | `tests/unit/test_corporate_actions.py` |
+| **Corporate Actions Live Tests (4)** | `tests/integration/test_corporate_actions_live.py` |
 
 ---
 
@@ -430,6 +438,40 @@ All tests pass. No warnings relevant to application logic.
 - Duplicate prevention via identity_key
 - Provenance stored (source, source_url, source_id, retrieved_at)
 
+### Phase 5 Company Calendar / Corporate Events Tests (2026-10-06)
+
+| Test | Result |
+|------|--------|
+| Unit tests (offline) | **15 passed** — Earnings fixtures, event creation, refresh, idempotency, queries, time parsing |
+| Unit tests (offline) | **19 passed** — Corporate actions normalization (dividends, splits, mergers, spin-offs), refresh, idempotency, filters, metadata preservation |
+| Live integration tests | **2 passed** — Earnings calendar fixture refresh, upcoming earnings queries |
+| Live integration tests | **4 passed** — Corporate actions live refresh (Alpaca API), symbol/action filters, upcoming actions |
+
+| Implemented Event Types (Authoritative Source) | Source | Status |
+|-----------------------------------------------|--------|--------|
+| Earnings Calendar | Fixtures / Alpha Vantage / FMP / Polygon / Twelve Data | **IMPLEMENTED** (fixture-based, multi-source ready) |
+| Cash Dividends | Alpaca API | **IMPLEMENTED** (live) |
+| Stock Dividends | Alpaca API | **IMPLEMENTED** (live) |
+| Reverse/Forward Splits | Alpaca API | **IMPLEMENTED** (live) |
+| Cash Mergers | Alpaca API | **IMPLEMENTED** (live) |
+| Stock Mergers | Alpaca API | **IMPLEMENTED** (live) |
+| Stock & Cash Mergers | Alpaca API | **IMPLEMENTED** (live) |
+| Spin-offs | Alpaca API | **IMPLEMENTED** (live) |
+| Rights Distributions | Alpaca API | **IMPLEMENTED** (live) |
+| Worthless Removals | Alpaca API | **IMPLEMENTED** (live) |
+| Name Changes | Alpaca API | **IMPLEMENTED** (live) |
+
+**Key behaviors verified:**
+- Earnings calendar: fixture-based with multi-source architecture ready (Alpha Vantage, FMP, Polygon, Twelve Data)
+- Corporate actions: live Alpaca API integration with all action types normalized
+- Event types: EARNINGS, DIVIDEND, STOCK_SPLIT, MERGER_ACQUISITION, SPINOFF, CORPORATE_ACTION
+- Importance tiers: LOW (dividends), MEDIUM (rights), HIGH (splits), CRITICAL (mergers, spin-offs)
+- Stable event identity: deduplication by source_id, revision tracking on changes
+- Metadata preservation: all provider fields preserved for research
+- Filtering: by symbol, action type, ex-date
+- Unknown time handling: defaults to midnight UTC (no fabrication)
+- Phase 5 = raw facts/evidence only; no interpretation fields (company_impact, stock_bias, scenarios)
+
 ---
 
 ## 8. Latest Program Output
@@ -663,6 +705,21 @@ Tasks:
 - Live integration tests: 8 tests (Fed FOMC parsing, BLS CPI/NFP/Unemployment live, refresh current year)
 - All tests: 92 passed, 12 skipped (offline + live gated by RUN_LIVE_TESTS=1)
 - Next phase: Phase 5 — Company Calendar / Corporate Events
+
+### 2026-10-06 — Phase 5 Company Calendar / Corporate Events Complete
+- Created EarningsCalendarProvider with multi-source architecture (fixtures, Alpha Vantage, FMP, Polygon, Twelve Data)
+- Created CorporateActionsProvider with live Alpaca API integration (dividends, splits, mergers, spin-offs, corporate actions)
+- Event types added: EARNINGS, DIVIDEND, STOCK_SPLIT, MERGER_ACQUISITION, SPINOFF, CORPORATE_ACTION
+- Importance tiers: LOW (dividends), MEDIUM (rights), HIGH (splits), CRITICAL (mergers, spin-offs)
+- Stable event identity: deduplication by source_id, revision tracking on changes (NEW/UNCHANGED/CHANGED)
+- Metadata preservation: all provider fields preserved for research
+- Filtering: by symbol, action type, ex-date
+- Unknown time handling: defaults to midnight UTC (no fabrication)
+- Phase 5 = raw facts/evidence only; no interpretation fields (company_impact, stock_bias, scenarios) - those belong to Phase 9
+- Unit tests: 15 earnings + 19 corporate actions = 34 offline tests
+- Live integration tests: 2 earnings + 4 corporate actions = 6 live tests
+- All tests: 126 passed, 12 skipped (offline + live gated by RUN_LIVE_TESTS=1)
+- Next phase: Phase 6 — SEC + Leadership + Insider Intelligence
 
 ### 2026-10-02 — GitHub Push: Phase 3 Complete
 - GitHub repository: https://github.com/sarthak-wadhawan/financial_model

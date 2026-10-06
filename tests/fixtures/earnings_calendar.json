@@ -1,0 +1,79 @@
+[
+  {
+    "symbol": "AAPL",
+    "date": "2026-10-28",
+    "time": "amc",
+    "quarter": "4",
+    "year": "2026",
+    "estimate": "1.55",
+    "currency": "USD",
+    "description": "Apple Inc. Q4 FY2026 Earnings",
+    "source_url": "https://financialmodelingprep.com"
+  },
+  {
+    "symbol": "MSFT",
+    "date": "2026-10-29",
+    "time": "amc",
+    "quarter": "1",
+    "year": "2027",
+    "estimate": "3.10",
+    "currency": "USD",
+    "description": "Microsoft Corp. Q1 FY2027 Earnings",
+    "source_url": "https://financialmodelingprep.com"
+  },
+  {
+    "symbol": "GOOGL",
+    "date": "2026-10-30",
+    "time": "amc",
+    "quarter": "3",
+    "year": "2026",
+    "estimate": "1.85",
+    "currency": "USD",
+    "description": "Alphabet Inc. Q3 FY2026 Earnings",
+    "source_url": "https://financialmodelingprep.com"
+  },
+  {
+    "symbol": "AMZN",
+    "date": "2026-11-04",
+    "time": "amc",
+    "quarter": "3",
+    "year": "2026",
+    "estimate": "1.20",
+    "currency": "USD",
+    "description": "Amazon.com Inc. Q3 FY2026 Earnings",
+    "source_url": "https://financialmodelingprep.com"
+  },
+  {
+    "symbol": "NVDA",
+    "date": "2026-11-18",
+    "time": "amc",
+    "quarter": "3",
+    "year": "2027",
+    "estimate": "0.72",
+    "currency": "USD",
+    "description": "NVIDIA Corp. Q3 FY2027 Earnings",
+    "source_url": "https://financialmodelingprep.com"
+  },
+  {
+    "symbol": "TSLA",
+    "date": "2026-10-21",
+    "time": "amc",
+    "quarter": "3",
+    "year": "2026",
+    "estimate": "0.72",
+    "currency": "USD",
+    "description": "Tesla Inc. Q3 FY2026 Earnings",
+    "source_url": "https://financialmodelingprep.com"
+  },
+  {
+    "symbol": "META",
+    "date": "2026-10-28",
+    "time": "amc",
+    "quarter": "3",
+    "year": "2026",
+    "estimate": "5.20",
+    "currency": "USD",
+    "description": "Meta Platforms Inc. Q3 FY2026 Earnings",
+    "source_url": "https://financialmodelingprep.com"
+  }
+]
