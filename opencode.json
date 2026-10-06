@@ -1,0 +1,111 @@
+{
+  "version": "1",
+  "project": {
+    "name": "trading-copilot",
+    "description": "AI Trading Research Copilot V1"
+  },
+  "agents": {
+    "default": "shepherd",
+    "available": [
+      "shepherd",
+      "reviewer",
+      "provider-auditor",
+      "security-reviewer",
+      "research-auditor",
+      "research/baseline",
+      "research/tree",
+      "research/neural",
+      "research/features"
+    ]
+  },
+  "commands": {
+    "continue-project": ".opencode/commands/continue-project.md",
+    "audit-current": ".opencode/commands/audit-current.md"
+  },
+  "instructions": [
+    "AGENTS.md",
+    "docs/START_HERE.md"
+  ],
+  "permissions": {
+    "read": true,
+    "write": true,
+    "edit": true,
+    "search": true,
+    "execute": {
+      "allow": [
+        "python3 -m pytest*",
+        "git status",
+        "git diff",
+        "git add*",
+        "git commit*",
+        "git push origin main",
+        "git log*",
+        "ls*",
+        "cat*",
+        "head*",
+        "tail*",
+        "grep*",
+        "find*",
+        "mkdir*",
+        "rm*",
+        "mv*",
+        "cp*"
+      ],
+      "deny": [
+        "git push --force*",
+        "git push -f*",
+        "git reset --hard*",
+        "rm -rf /",
+        "dd*",
+        "mkfs*",
+        "fdisk*",
+        "sudo*",
+        "chmod 777*",
+        "chown -R*",
+        "curl*|sh",
+        "wget*|sh",
+        "pip install*--user*",
+        "npm install*--global*",
+        "apt-get*",
+        "yum*",
+        "brew*"
+      ]
+    },
+    "environment": {
+      "allow": [
+        "RUN_LIVE_TESTS",
+        "APCA_API_KEY_ID",
+        "APCA_API_SECRET_KEY",
+        "ALPHA_VANTAGE_API_KEY",
+        "FMP_API_KEY",
+        "POLYGON_API_KEY",
+        "TWELVE_DATA_API_KEY",
+        "BEA_API_KEY",
+        "CENSUS_API_KEY",
+        "SEC_USER_AGENT"
+      ],
+      "deny": [
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "DATABASE_PASSWORD",
+        "PRIVATE_KEY",
+        "JWT_SECRET"
+      ]
+    }
+  },
+  "modelRouting": {
+    "default": "auto",
+    "agents": {
+      "shepherd": "auto",
+      "reviewer": "auto",
+      "provider-auditor": "auto",
+      "security-reviewer": "auto",
+      "research-auditor": "auto",
+      "research/baseline": "free",
+      "research/tree": "free",
+      "research/neural": "auto",
+      "research/features": "free"
+    }
+  }
+}
