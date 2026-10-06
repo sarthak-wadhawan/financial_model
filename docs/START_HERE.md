@@ -59,7 +59,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | 0–1 | ✅ COMPLETE | Deterministic scanner, mock data, feature calculations, eligibility, quant scoring, top-N ranking, artifacts |
 | 2 | ✅ COMPLETE | Alpaca IEX daily bars, batching, retry/backoff, caching, provider selection, live smoke tests |
 | 3 | ✅ COMPLETE | SQLite Event Store, MarketEvent model, upsert/dedupe, revision history, change detection, queries |
-| 4 | ✅ COMPLETE | MacroCalendarProvider: FOMC (Fed parsing + fixtures), BLS API (CPI/NFP/Unemployment/PPI/JOLTS), BEA API (GDP/PCE), Census API (Retail/Housing), importance tiers, refresh/upsert, revision tracking, live tests |
+| 4 | ✅ COMPLETE | MacroCalendarProvider: FOMC (Fed parsing + corrected fixtures: Oct 27-28, Dec 8-9 2026), BLS API (CPI/NFP/Unemployment/PPI/JOLTS), BEA API (GDP/PCE), Census API (Retail/Housing), importance tiers, refresh/upsert, revision tracking, live tests |
 
 ---
 
@@ -67,15 +67,22 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 ### Phase 5 — Company Calendar / Corporate Events
 
-**Goal**: Implement earnings calendar, dividends, splits, corporate actions, investor events with structured fields for downstream interpretation engine.
+**Goal**: Implement earnings calendar, dividends, splits, corporate actions, investor events. Preserve structured FACTS and EVIDENCE for downstream Phase 9 Interpretation Engine.
 
 **State**: Not started.
 
-**Must Preserve for Downstream**:
-- `company_impact` (fundamental business impact)
-- `stock_bias` (directional expectation with confidence)
-- `time_horizon` (days/weeks/months/quarters)
-- `base_case` / `bull_case` / `bear_case` / `what_would_change_view`
+**Architecture**:
+- Phase 5 = RAW EVENT/EVIDENCE INGESTION ONLY
+- Phase 9 = INTERPRETATION ENGINE (computes company_impact, stock_bias, scenarios, confidence, time_horizon)
+- Do NOT populate `company_impact`, `stock_bias`, `base_case`, `bull_case`, `bear_case`, `confidence`, `time_horizon` in Phase 5
+
+**Must Preserve for Phase 9**:
+- Earnings: date/time/timezone, EPS actual/consensus, revenue actual/consensus, guidance, management commentary source
+- Dividends: ex-dividend date, payment date, amount, type
+- Splits: ratio, effective date
+- Corporate actions: type, terms, dates, source documents
+- Investor events: date, type, presentation materials
+- All with provenance: source, source_url, source_id, retrieved_at
 
 **Next Actions**:
 1. EarningsCalendarProvider (dates, times, timezone)
@@ -129,7 +136,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | Provider | Status | Notes |
 |----------|--------|-------|
 | Alpaca / IEX | ✅ VERIFIED LIVE | Daily bars, latest price, quotes, trades, caching |
-| Federal Reserve | ✅ VERIFIED LIVE | FOMC schedule (HTML parsing + fixtures), minutes |
+| Federal Reserve | ✅ VERIFIED LIVE | FOMC schedule (HTML parsing + corrected fixtures: Oct 27-28, Dec 8-9 2026), minutes |
 | BLS (Bureau of Labor Statistics) | ✅ VERIFIED LIVE | CPI, Core CPI, NFP, Unemployment, Avg Hourly Earnings, PPI, JOLTS |
 | BEA (Bureau of Economic Analysis) | ⚠️ IMPLEMENTED / CREDENTIAL REQUIRED | GDP, PCE, Core PCE — needs free API key |
 | Census Bureau | ⚠️ IMPLEMENTED / CREDENTIAL REQUIRED | Retail Sales, Housing Starts, Building Permits — needs free API key |
@@ -145,7 +152,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 Offline:    92 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 2 BLS fixture)
 Live:       8 passed (Fed FOMC parsing, BLS CPI/NFP/Unemployment, refresh current year)
 Skipped:    12 (4 Alpaca + 8 macro when RUN_LIVE_TESTS not set)
-Last run:   2026-10-05
+Last run:   2026-10-06
 ```
 
 Run:

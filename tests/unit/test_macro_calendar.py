@@ -120,7 +120,8 @@ class TestMacroCalendarProvider:
         dates = [e["metadata"]["meeting_start"] for e in events_2026]
         assert "2026-01-27" in dates
         assert "2026-03-17" in dates
-        assert "2026-12-15" in dates
+        assert "2026-10-27" in dates
+        assert "2026-12-08" in dates
 
     def test_parse_fomc_html(self, provider):
         """Test FOMC HTML parsing."""

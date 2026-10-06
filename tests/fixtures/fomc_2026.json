@@ -42,17 +42,17 @@
     "type": "scheduled"
   },
   {
-    "meeting_date": "2026-11-04",
-    "meeting_end": "2026-11-05",
-    "statement_date": "2026-11-05",
-    "minutes_date": "2026-11-24",
+    "meeting_date": "2026-10-27",
+    "meeting_end": "2026-10-28",
+    "statement_date": "2026-10-28",
+    "minutes_date": "2026-11-18",
     "type": "scheduled"
   },
   {
-    "meeting_date": "2026-12-15",
-    "meeting_end": "2026-12-16",
-    "statement_date": "2026-12-16",
-    "minutes_date": "2027-01-06",
+    "meeting_date": "2026-12-08",
+    "meeting_end": "2026-12-09",
+    "statement_date": "2026-12-09",
+    "minutes_date": "2026-12-30",
     "type": "scheduled"
   }
 ]

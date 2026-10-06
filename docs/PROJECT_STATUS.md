@@ -396,13 +396,16 @@ All tests pass. No warnings relevant to application logic.
 
 **Fixed IEX history limitation**: The initial 300-calendar-day lookback yielded only ~206 trading sessions. The provider now automatically expands the calendar lookback (up to 1000 calendar days) until the configured `min_history_days` (220) trading sessions are retrieved. With 1000 calendar days, all eligible symbols have 687 sessions.
 
-### Phase 4 Macro Calendar Tests (2026-10-05)
+### Phase 4 Macro Calendar Tests (2026-10-06)
 
 | Test | Result |
 |------|--------|
-| Unit tests (offline) | **18 passed** — FOMC fixtures, event creation, refresh, idempotency, queries, importance tiers, BLS fixture parsing |
-| Live integration tests | **8 passed** — Fed FOMC parsing (6 upcoming meetings), BLS CPI/NFP/Unemployment live API, refresh current year |
+| Unit tests (offline) | **18 passed** — FOMC fixtures (corrected 2026 schedule), event creation, refresh, idempotency, queries, importance tiers, BLS fixture parsing |
+| Live integration tests | **8 passed** — Fed FOMC parsing, BLS CPI/NFP/Unemployment live API, refresh current year |
 | Provider status | 12 implemented (Fed/BLS/BEA/Census), 7 provider_pending (ISM, Conf Board, UMich, Industrial Prod) |
+
+**FOMC 2026 Schedule (Official):**
+- Jan 27-28, Mar 17-18, Apr 28-29, Jun 9-10, Jul 28-29, Sep 15-16, **Oct 27-28**, **Dec 8-9**
 
 | Implemented Event Types (Authoritative Source) | Source | Status |
 |-----------------------------------------------|--------|--------|
@@ -643,12 +646,13 @@ Tasks:
 - All tests: 76 passed, 4 skipped (no external dependencies)
 - Next phase: Phase 4 — Macro Event Intelligence
 
-### 2026-10-05 — Phase 4 Macro Event Intelligence Complete
+### 2026-10-06 — Phase 4 Macro Event Intelligence Complete (FOMC Fixture Corrected)
 - Created MacroCalendarProvider with 19 macro event types across 4 authoritative source families
-- **Federal Reserve**: FOMC meetings (official HTML parsing + fixtures for 2024-2026), FOMC minutes
+- **Federal Reserve**: FOMC meetings (official HTML parsing + corrected fixtures for 2024-2026), FOMC minutes
 - **Bureau of Labor Statistics**: CPI, Core CPI, PPI, NFP, Unemployment Rate, Avg Hourly Earnings, JOLTS (live API integration)
 - **Bureau of Economic Analysis**: GDP, PCE, Core PCE (API integration, requires key)
 - **Census Bureau**: Retail Sales, Housing Starts, Building Permits (API integration, requires key)
+- **Corrected FOMC 2026 fixture**: Oct 27-28 and Dec 8-9 (was incorrectly Nov 4-5 and Dec 15-16)
 - Importance tiers: 8 CRITICAL, 6 HIGH, 4 MEDIUM, 1 PROVIDER_PENDING (per event type config)
 - 7 event types marked PROVIDER_PENDING (ISM, Conference Board, UMich, Industrial Production) — no reliable free API
 - Refresh behavior: load stored → fetch from official source → compare → upsert (NEW/UNCHANGED/CHANGED)
