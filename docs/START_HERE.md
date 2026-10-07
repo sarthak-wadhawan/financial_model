@@ -36,18 +36,18 @@ WHAT HAPPENED? → WHAT DOES IT MEAN? → WHY DOES IT MATTER?
 
 ```
 Market Data (Alpaca/IEX) → Feature Engineering → Quant Scanner (deterministic)
-                                                          ↓
+                                                           ↓
 Event Providers (Fed/BLS/BEA/Census) → Event Store (SQLite) → Event Intelligence
-                                                          ↓
+                                                           ↓
 Company Providers (Earnings/SEC/Insiders/News) ──────────────→ Company Intelligence
-                                                          ↓
-                              AI Extraction (Phase 8+, optional) → Evidence Validation
-                                                          ↓
-                              Interpretation Engine → Answer Engine → Research Brief
-                                                          ↓
-                              API → Website (answer-focused, progressive disclosure)
-                                                          ↓
-                                                    HUMAN DECISION
+                                                           ↓
+                               AI Extraction (Phase 8+, optional) → Evidence Validation
+                                                           ↓
+                               Interpretation Engine → Answer Engine → Research Brief
+                                                           ↓
+                               API → Website (answer-focused, progressive disclosure)
+                                                           ↓
+                                                     HUMAN DECISION
 ```
 
 ---
@@ -61,6 +61,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | 3 | ✅ COMPLETE | SQLite Event Store, MarketEvent model, upsert/dedupe, revision history, change detection, queries |
 | 4 | ✅ COMPLETE | MacroCalendarProvider: FOMC (Fed parsing + corrected fixtures: Oct 27-28, Dec 8-9 2026), BLS API (CPI/NFP/Unemployment/PPI/JOLTS), BEA API (GDP/PCE), Census API (Retail/Housing), importance tiers, refresh/upsert, revision tracking, live tests |
 | 5 | ✅ COMPLETE | EarningsCalendarProvider (fixtures, multi-source ready), CorporateActionsProvider (Alpaca API live), EventType.EARNINGS/DIVIDEND/STOCK_SPLIT/MERGER_ACQUISITION/SPINOFF/CORPORATE_ACTION, importance tiers, refresh/upsert with revision tracking, live tests |
+| 6 | ✅ COMPLETE | SEC EDGAR integration: 8-K/10-Q/10-K/Form 4, historical shards, amendments, leadership (CEO/CFO) extraction, insider classification, source preservation, importance tiers, idempotent refresh, live verification |
 
 ---
 
@@ -70,7 +71,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 **Goal**: Implement EDGAR integration for SEC filings (8-K, 10-Q, 10-K, Form 4), track leadership changes (CEO/CFO), and insider transaction classification.
 
-**State**: Not started.
+**State**: ✅ COMPLETE. SEC EDGAR ingestion implemented with historical shards, amendments, Form 4 multi-owner/derivative support, conservative leadership extraction, and insider classification. Unit tests: 29 passed. Live integration: 1 passed (SEC_USER_AGENT configured). Independent reviews: security PARTIAL PASS (bounded mitigations), provider FAIL→FIXED, reviewer FAIL→FIXED. Offline suite: 157 passed, 19 skipped.
 
 **Architecture**:
 - Phase 6 = RAW FILING/LEADERSHIP/INSIDER EVENT INGESTION ONLY
@@ -83,7 +84,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 - Insiders: name, role, transaction date, filing date, buy/sell/other, shares, price/value, holdings after, 10b5-1 indicator
 - All with provenance: source, source_url, source_id, retrieved_at
 
-**Next Actions**:
+**Delivered**:
 1. FilingProvider (EDGAR integration: 8-K, 10-Q, 10-K, Form 4)
 2. Leadership tracking (CEO/CFO current, changes)
 3. Insider transaction classification
@@ -99,7 +100,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 | Phase | Focus |
 |-------|-------|
-| 6 | SEC + Leadership + Insider Intelligence (EDGAR, 8-K/10-Q/10-K/Form 4, CEO/CFO, leadership changes, insider classification) |
+| 6 | ✅ SEC + Leadership + Insider Intelligence (EDGAR, 8-K/10-Q/10-K/Form 4, CEO/CFO, leadership changes, insider classification) |
 | 7 | Earnings Intelligence + Reaction History (EPS/revenue, guidance, commentary, reaction windows, surprise, scenario inputs) |
 | 8 | News + Management Analysis (structured AI extraction, source-backed catalyst/risk claims, evidence for interpretation engine) |
 | 9 | **Interpretation + Impact Engine / Answer Engine** (What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon? Scenarios? Term definitions. Zero-LLM Core) |
@@ -138,7 +139,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | BLS (Bureau of Labor Statistics) | ✅ VERIFIED LIVE | CPI, Core CPI, NFP, Unemployment, Avg Hourly Earnings, PPI, JOLTS |
 | BEA (Bureau of Economic Analysis) | ⚠️ IMPLEMENTED / CREDENTIAL REQUIRED | GDP, PCE, Core PCE — needs free API key |
 | Census Bureau | ⚠️ IMPLEMENTED / CREDENTIAL REQUIRED | Retail Sales, Housing Starts, Building Permits — needs free API key |
-| SEC EDGAR | 🔄 PROVIDER PENDING | Phase 6 |
+| SEC EDGAR | ✅ VERIFIED LIVE | Phase 6 complete: filings, leadership, insiders, historical shards, amendments |
 | Earnings Calendar | ✅ IMPLEMENTED | Phase 5 (fixtures, multi-source ready: Alpha Vantage, FMP, Polygon, Twelve Data) |
 | Corporate Actions (Alpaca) | ✅ VERIFIED LIVE | Phase 5 (dividends, splits, mergers, spin-offs) |
 | News/Management | 🔄 PROVIDER PENDING | Phase 8 |
@@ -148,10 +149,9 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 ## Tests
 
 ```
-Offline:    126 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 15 earnings, 19 corporate actions, 2 BLS fixture)
-Live:       14 passed (Fed FOMC parsing, BLS CPI/NFP/Unemployment, earnings fixture refresh, corporate actions live refresh, symbol/action filters)
-Skipped:    12 (4 Alpaca + 8 macro + 2 earnings + 4 corporate when RUN_LIVE_TESTS not set)
-Last run:   2026-10-06
+Offline baseline: 157 passed, 19 skipped (includes Phase 6 SEC unit tests)
+Live baseline: 143 passed, 4 skipped (includes SEC live integration)
+Last run:   2026-10-07
 ```
 
 Run:
@@ -167,9 +167,10 @@ RUN_LIVE_TESTS=1 python3 -m pytest -q   # live tests
 1. **BEA/Census APIs require free registration keys** — implemented but need keys for live tests
 2. **Fed FOMC HTML parsing** — unreliable for upcoming meetings; uses fixtures for current year
 3. **ISM/Conference Board/UMich/Industrial Production** — marked PROVIDER_PENDING (no reliable free API)
-3. **No earnings/dividend/split/insider/SEC data yet** — Phase 5-6
-4. **No AI/evidence/answer engine yet** — Phase 8-9
-5. **No website/frontend yet** — Phase 10
+4. **SEC live ingestion** — requires genuine operator SEC_USER_AGENT; no API key needed
+5. **Leadership coverage** — evidence-derived only; unparsed announcements remain unknown (Phase 9)
+6. **No AI/evidence/answer engine yet** — Phase 8-9
+7. **No website/frontend yet** — Phase 10
 
 ---
 
@@ -179,7 +180,7 @@ RUN_LIVE_TESTS=1 python3 -m pytest -q   # live tests
 # Run all offline tests
 python3 -m pytest -q
 
-# Run live tests (requires API keys for Alpaca, BEA, Census)
+# Run live tests (requires API keys for Alpaca, BEA, Census, SEC_USER_AGENT)
 RUN_LIVE_TESTS=1 python3 -m pytest -q
 
 # Run scanner (mock provider)
@@ -199,9 +200,9 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 ## NEXT ACTION
 
-**Implement Phase 6 — SEC + Leadership + Insider Intelligence** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
+**Proceed to Phase 7 — Earnings Intelligence + Reaction History** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
 
-Start with `FilingProvider` for EDGAR integration (8-K, 10-Q, 10-K, Form 4), then leadership tracking (CEO/CFO), insider transaction classification, and source preservation. Preserve structured fields for downstream interpretation engine.
+Start with EPS/revenue results, guidance, management commentary, reaction windows, earnings history, evidence-backed explanations, and surprise/guidance-change/reaction/scenario inputs.
 
 ---
 

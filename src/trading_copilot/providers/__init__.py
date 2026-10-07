@@ -13,6 +13,8 @@ from trading_copilot.providers.alpaca_market import AlpacaMarketDataProvider, cr
 from trading_copilot.providers.macro_calendar import MacroCalendarProvider
 from trading_copilot.providers.earnings_calendar import EarningsCalendarProvider
 from trading_copilot.providers.corporate_actions import CorporateActionsProvider
+from trading_copilot.providers.filing_provider import SECFilingProvider
+from trading_copilot.providers.sec_cik_map import SECCIKMap
 
 __all__ = [
     "UniverseProvider",
@@ -27,4 +29,6 @@ __all__ = [
     "MacroCalendarProvider",
     "EarningsCalendarProvider",
     "CorporateActionsProvider",
+    "SECFilingProvider",
+    "SECCIKMap",
 ]

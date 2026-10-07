@@ -18,28 +18,28 @@ MOCK_CORPORATE_ACTIONS_RESPONSE = {
         "cash_dividends": [
             {
                 "cusip": "037833100",
-                "ex_date": "2026-10-05",
+                "ex_date": "2026-10-15",
                 "foreign": False,
                 "id": "div_001",
-                "payable_date": "2026-10-06",
-                "process_date": "2026-10-06",
+                "payable_date": "2026-10-16",
+                "process_date": "2026-10-16",
                 "rate": 0.25,
-                "record_date": "2026-10-05",
+                "record_date": "2026-10-15",
                 "special": False,
                 "symbol": "AAPL"
             }
         ],
         "reverse_splits": [
             {
-                "ex_date": "2026-10-06",
+                "ex_date": "2026-10-20",
                 "id": "split_001",
                 "new_cusip": "123456789",
                 "new_rate": 1,
                 "old_cusip": "987654321",
                 "old_rate": 10,
-                "payable_date": "2026-10-06",
-                "process_date": "2026-10-06",
-                "record_date": "2026-10-06",
+                "payable_date": "2026-10-20",
+                "process_date": "2026-10-20",
+                "record_date": "2026-10-20",
                 "symbol": "TEST"
             }
         ],
@@ -47,23 +47,23 @@ MOCK_CORPORATE_ACTIONS_RESPONSE = {
             {
                 "acquiree_cusip": "111111111",
                 "acquiree_symbol": "TARGET",
-                "effective_date": "2026-10-05",
+                "effective_date": "2026-10-15",
                 "id": "merger_001",
-                "payable_date": "2026-10-06",
-                "process_date": "2026-10-06",
+                "payable_date": "2026-10-16",
+                "process_date": "2026-10-16",
                 "rate": 50.0
             }
         ],
         "spin_offs": [
             {
-                "ex_date": "2026-09-15",
+                "ex_date": "2026-10-25",
                 "id": "spinoff_001",
                 "new_cusip": "999999999",
                 "new_rate": 0.5,
                 "new_symbol": "SPIN",
-                "payable_date": "2026-10-06",
-                "process_date": "2026-10-06",
-                "record_date": "2026-09-15",
+                "payable_date": "2026-10-26",
+                "process_date": "2026-10-26",
+                "record_date": "2026-10-25",
                 "source_cusip": "888888888",
                 "source_rate": 1,
                 "source_symbol": "PARENT"
@@ -78,10 +78,10 @@ MOCK_CORPORATE_ACTIONS_RESPONSE = {
                 "acquirer_rate": 0.96,
                 "acquirer_symbol": "SWKS",
                 "cash_rate": 32.5,
-                "effective_date": "2026-10-05",
+                "effective_date": "2026-10-15",
                 "id": "scm_001",
-                "payable_date": "2026-10-06",
-                "process_date": "2026-10-06"
+                "payable_date": "2026-10-16",
+                "process_date": "2026-10-16"
             }
         ],
         "stock_dividends": [],

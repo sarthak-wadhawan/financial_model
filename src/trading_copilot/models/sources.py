@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +30,7 @@ class SourceDocument(BaseModel):
     text: str
     retrieval_time: datetime
     content_hash: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvidenceClaim(BaseModel):
