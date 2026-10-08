@@ -378,11 +378,12 @@ python3 -m pytest -q
 
 Result:
 ```text
-157 passed, 19 skipped in 15.6s
+231 passed, 19 skipped in 116.5s
 ```
 
-- Unit tests: 157 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 15 earnings, 19 corporate actions, 29 SEC filings, 2 BLS fixture)
-- Integration tests: 12 passed (4 scan + 8 macro calendar live)
+- Unit tests: 212 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 15 earnings_calendar, 19 corporate_actions, 29 SEC filings, 43 earnings_parsers, 15 earnings_intelligence, 16 earnings_reaction)
+- Integration tests: 19 passed (4 scan + 8 macro calendar live + 2 earnings_calendar live + 4 corporate_actions_live + 1 sec_live)
+- Live Phase 7 tests: 8 skipped (4 earnings_intelligence_live + 4 earnings_reaction_live, require RUN_LIVE_TESTS=1)
 - Live Alpaca tests: 4 skipped (require RUN_LIVE_TESTS=1 and credentials)
 - Live Macro Calendar tests: 8 passed (RUN_LIVE_TESTS=1)
 - Live SEC test: 1 passed (RUN_LIVE_TESTS=1, SEC_USER_AGENT configured)
@@ -772,15 +773,19 @@ Tasks:
 - All tests: 157 passed, 19 skipped (offline); 143 passed, 4 skipped (live)
 - Next phase: Phase 7 — Earnings Intelligence + Reaction History
 
-### 2026-10-07 — Phase 7 Earnings Intelligence + Reaction History In Progress
+### 2026-10-07 — Phase 7 Earnings Intelligence + Reaction History Complete
 - Implemented EarningsIntelligenceProvider: extracts EPS/revenue actuals, consensus estimates, guidance from SEC 8-K Item 2.02, 10-Q, 10-K filings
 - Implemented EarningsReactionProvider: computes reaction windows (pre_market for BMO, immediate_ah, next_session, session_5) using Alpaca IEX market data
 - Corrected timestamp semantics: filing_accepted_at (SEC acceptance time) ≠ announcement_released_at (actual earnings release time); tracked separately with release_time_source and release_time_precision fields
 - Reaction windows anchored to released_at (actual release timestamp), not scheduled_at; lookahead-safe with explicit end boundaries
 - Added EARNINGS_RESULT, EARNINGS_GUIDANCE, EARNINGS_REACTION event types to EventType enum
+- Deterministic earnings parsers: extract EPS/revenue/consensus/guidance/surprise; no invented values; missing fields remain null
+- Guidance extraction with change classification (raised/lowered/maintained/new) and period detection
 - Unit tests: 15 earnings_intelligence + 16 earnings_reaction + 43 earnings_parsers = 74 new tests passing
-- All existing Phase 1-6 tests pass (157 offline, 143 live)
-- Next: Node E (live integration tests), Node F (independent audits), Node G (integration + docs + commit)
+- Live integration tests: 4 earnings_intelligence + 4 earnings_reaction (gated by RUN_LIVE_TESTS=1)
+- All existing Phase 1-6 tests pass (231 total: 212 offline, 19 live)
+- Independent audits pending (Node F); integration docs commit pending (Node G)
+- Next phase: Phase 8 — News + Management Analysis
 
 ### 2026-10-02 — GitHub Push: Phase 3 Complete
 - GitHub repository: https://github.com/sarthak-wadhawan/financial_model

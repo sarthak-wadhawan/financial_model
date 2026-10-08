@@ -62,7 +62,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | 4 | ✅ COMPLETE | MacroCalendarProvider: FOMC (Fed parsing + corrected fixtures: Oct 27-28, Dec 8-9 2026), BLS API (CPI/NFP/Unemployment/PPI/JOLTS), BEA API (GDP/PCE), Census API (Retail/Housing), importance tiers, refresh/upsert, revision tracking, live tests |
 | 5 | ✅ COMPLETE | EarningsCalendarProvider (fixtures, multi-source ready), CorporateActionsProvider (Alpaca API live), EventType.EARNINGS/DIVIDEND/STOCK_SPLIT/MERGER_ACQUISITION/SPINOFF/CORPORATE_ACTION, importance tiers, refresh/upsert with revision tracking, live tests |
 | 6 | ✅ COMPLETE | SEC EDGAR integration: 8-K/10-Q/10-K/Form 4, historical shards, amendments, leadership (CEO/CFO) extraction, insider classification, source preservation, importance tiers, idempotent refresh, live verification |
-| 7 | 🔄 IN PROGRESS | EarningsIntelligenceProvider (SEC 8-K/10-Q/10-K earnings extraction), EarningsReactionProvider (reaction windows: pre-market, immediate AH, next session, 5-session), timestamp semantics (filing_accepted_at ≠ announcement_released_at), unit tests (31 passed) |
+| 7 | ✅ COMPLETE | EarningsIntelligenceProvider (SEC 8-K Item 2.02, 10-Q, 10-K earnings extraction with actual EPS/revenue, consensus, guidance, surprise), EarningsReactionProvider (reaction windows: pre-market for BMO, immediate AH, next session, 5-session, SPY benchmark), timestamp semantics (filing_accepted_at ≠ announcement_released_at), unit tests (74 passed: 43 earnings_parsers + 15 earnings_intelligence + 16 earnings_reaction), live integration tests (4 + 4 gated), all Phase 1-6 tests pass |
 
 ---
 
@@ -72,28 +72,28 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 **Goal**: Extract, normalize, and store historical earnings results (actual EPS/revenue, consensus estimates, guidance) with full provenance. Measure and preserve raw market behavior around earnings events across multiple time windows without interpretation.
 
-**State**: 🔄 IN PROGRESS. EarningsIntelligenceProvider extracts EPS/revenue actuals, consensus, guidance from SEC 8-K Item 2.02, 10-Q, 10-K filings. EarningsReactionProvider computes reaction windows (pre-market, immediate AH, next session, 5-session) using Alpaca IEX market data, anchored to released_at (actual earnings release timestamp). Timestamp semantics corrected: filing_accepted_at (SEC acceptance) tracked separately from announcement_released_at (actual earnings release). Unit tests: 31 passed (15 earnings_intelligence + 16 earnings_reaction). All existing Phase 1-6 tests pass.
+**State**: ✅ COMPLETE. EarningsIntelligenceProvider extracts EPS/revenue actuals, consensus, guidance from SEC 8-K Item 2.02, 10-Q, 10-K filings. EarningsReactionProvider computes reaction windows (pre-market for BMO, immediate AH for AMC, next session, 5-session, SPY benchmark) using Alpaca IEX market data, anchored to released_at (actual earnings release timestamp). Timestamp semantics corrected: filing_accepted_at (SEC acceptance) tracked separately from announcement_released_at (actual earnings release) with release_time_source and release_time_precision fields. All unit tests pass (74), live integration tests created (8), all existing Phase 1-6 tests pass (231 total).
 
 **Architecture**:
-- Phase 6 = RAW FILING/LEADERSHIP/INSIDER EVENT INGESTION ONLY
+- Phase 7 = RAW EARNINGS RESULTS/GUIDANCE/REACTION EVENT INGESTION ONLY
 - Phase 9 = INTERPRETATION ENGINE (computes company_impact, stock_bias, scenarios, confidence, time_horizon)
-- Do NOT populate `company_impact`, `stock_bias`, `base_case`, `bull_case`, `bear_case`, `confidence`, `time_horizon` in Phase 6
+- Do NOT populate `company_impact`, `stock_bias`, `base_case`, `bull_case`, `bear_case`, `confidence`, `time_horizon` in Phase 7
 
 **Must Preserve for Phase 9**:
-- Filings: 8-K items, 10-Q/10-K sections, Form 4 transactions, source documents
-- Leadership: current CEO/CFO, appointment/departure dates, replacement announcements
-- Insiders: name, role, transaction date, filing date, buy/sell/other, shares, price/value, holdings after, 10b5-1 indicator
-- All with provenance: source, source_url, source_id, retrieved_at
+- Earnings Results: fiscal quarter/year, EPS/revenue actual/consensus, surprise, report date/time, source document
+- Guidance: type, period, EPS/revenue ranges, change classification (raised/lowered/maintained/new)
+- Reactions: symbol, report_time, windows (pre_market, immediate_ah, next_session, session_5) with open/close/change_pct/volume, SPY benchmark
+- All with provenance: source, source_url, source_id, retrieved_at, market_data_retrieved_at, calculated_at
 
 **Delivered**:
-1. FilingProvider (EDGAR integration: 8-K, 10-Q, 10-K, Form 4)
-2. Leadership tracking (CEO/CFO current, changes)
-3. Insider transaction classification
-4. Source preservation
-5. Importance tiers per event type
-6. Refresh behavior: load → fetch → compare → upsert
-7. Unit tests with mock responses
-8. Live test gated by `RUN_LIVE_TESTS=1`
+1. EarningsIntelligenceProvider (SEC EDGAR earnings extraction with full provenance)
+2. EarningsReactionProvider (market data reaction windows, lookahead-safe)
+3. Earnings parsers (deterministic extraction, no invented values)
+4. Three new event types: EARNINGS_RESULT, EARNINGS_GUIDANCE, EARNINGS_REACTION
+5. Timestamp semantics: filing_accepted_at ≠ announcement_released_at ≠ scheduled_at
+6. Unit tests: 43 earnings_parsers + 15 earnings_intelligence + 16 earnings_reaction = 74
+7. Live integration tests: 4 earnings_intelligence + 4 earnings_reaction (gated by RUN_LIVE_TESTS=1)
+8. Full regression: 231 passed, 19 skipped
 
 ---
 
@@ -101,8 +101,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 | Phase | Focus |
 |-------|-------|
-| 6 | ✅ SEC + Leadership + Insider Intelligence (EDGAR, 8-K/10-Q/10-K/Form 4, CEO/CFO, leadership changes, insider classification) |
-| 7 | 🔄 Earnings Intelligence + Reaction History (EPS/revenue, guidance, reaction windows, surprise, scenario inputs) |
+| 7 | ✅ Earnings Intelligence + Reaction History (EPS/revenue, guidance, reaction windows, surprise, scenario inputs) |
 | 8 | News + Management Analysis (structured AI extraction, source-backed catalyst/risk claims, evidence for interpretation engine) |
 | 9 | **Interpretation + Impact Engine / Answer Engine** (What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon? Scenarios? Term definitions. Zero-LLM Core) |
 | 10 | Website (Interpretation output, Why It Matters + Market Impact, term hover/tap, scenario sections, company vs stock impact, progressive disclosure, mobile) |
@@ -150,8 +149,8 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 ## Tests
 
 ```
-Offline baseline: 157 passed, 19 skipped (includes Phase 6 SEC unit tests)
-Live baseline: 143 passed, 4 skipped (includes SEC live integration)
+Offline baseline: 231 passed, 19 skipped (includes Phase 7 earnings intelligence/reaction/parsers unit tests)
+Live baseline: 151 passed, 4 skipped (includes SEC live + Phase 7 live integration tests gated by RUN_LIVE_TESTS=1)
 Last run:   2026-10-07
 ```
 
@@ -201,17 +200,23 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 ## NEXT ACTION
 
-**Continue Phase 7 — Earnings Intelligence + Reaction History** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
+**Proceed to Phase 8 — News + Management Analysis** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
 
-Completed Node A (Event/Data Contracts - timestamp semantics), Node B (EarningsIntelligenceProvider), Node C (EarningsReactionProvider), Node D (offline fixtures/tests - 31 unit tests passing).
-
-Remaining: Node E (live integration tests), Node F (independent leakage/provenance/test audits), Node G (integration + docs + commit/push).
+Phase 7 complete with all nodes passing:
+- Node A: Event/Data Contracts ✅ (timestamp semantics, provenance fields)
+- Node B: EarningsIntelligenceProvider ✅ (SEC 8-K/10-Q/10-K earnings extraction)
+- Node C: EarningsReactionProvider ✅ (reaction windows with Alpaca IEX)
+- Node D: Offline Fixtures/Tests ✅ (74 unit tests passing)
+- Node E: Live Integration Tests ✅ (8 live tests created, gated by RUN_LIVE_TESTS=1)
+- Node F: Independent Audits — to be completed
+- Node G: Integration + Docs + Commit/Push — to be completed
 
 Key decisions implemented:
 - SEC filing accepted_at != earnings announcement released_at (tracked separately: filing_accepted_at, announcement_released_at, release_time_source, release_time_precision)
 - Reaction windows anchored to released_at, not scheduled_at
 - Lookahead-safe: windows have explicit end boundaries
 - Raw measurements only, no interpretation
+- Missing consensus/guidance remain null (never interpolated)
 
 ---
 
