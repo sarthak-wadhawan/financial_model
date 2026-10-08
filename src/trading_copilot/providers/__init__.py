@@ -12,6 +12,9 @@ from trading_copilot.providers.mock import MockMarketDataProvider
 from trading_copilot.providers.alpaca_market import AlpacaMarketDataProvider, create_market_data_provider
 from trading_copilot.providers.macro_calendar import MacroCalendarProvider
 from trading_copilot.providers.earnings_calendar import EarningsCalendarProvider
+from trading_copilot.providers.earnings_intelligence import EarningsIntelligenceProvider
+from trading_copilot.providers.earnings_reaction import EarningsReactionProvider
+from trading_copilot.providers.earnings_parsers import extract_eps_revenue, extract_guidance_details, compute_surprise
 from trading_copilot.providers.corporate_actions import CorporateActionsProvider
 from trading_copilot.providers.filing_provider import SECFilingProvider
 from trading_copilot.providers.sec_cik_map import SECCIKMap
@@ -28,6 +31,11 @@ __all__ = [
     "create_market_data_provider",
     "MacroCalendarProvider",
     "EarningsCalendarProvider",
+    "EarningsIntelligenceProvider",
+    "EarningsReactionProvider",
+    "extract_eps_revenue",
+    "extract_guidance_details",
+    "compute_surprise",
     "CorporateActionsProvider",
     "SECFilingProvider",
     "SECCIKMap",

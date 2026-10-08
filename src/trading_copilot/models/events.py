@@ -15,6 +15,9 @@ class EventType(str, Enum):
 
     MACRO = "macro"
     EARNINGS = "earnings"
+    EARNINGS_RESULT = "earnings_result"
+    EARNINGS_GUIDANCE = "earnings_guidance"
+    EARNINGS_REACTION = "earnings_reaction"
     DIVIDEND = "dividend"
     STOCK_SPLIT = "stock_split"
     MERGER_ACQUISITION = "merger_acquisition"

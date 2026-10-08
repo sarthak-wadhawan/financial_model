@@ -17,9 +17,10 @@ The system is a research copilot, not an autonomous trading bot.
 
 ## 2. Current Development Phase
 
-**2026-10-07: Phase 6 COMPLETE.** Offline: 157 passed, 19 skipped. Live: 143 passed, 4 skipped. SEC EDGAR provider implemented with historical submissions, amendments, Form 4 XML (namespaces, multiple owners, derivatives, footnotes, 10b5-1), conservative leadership extraction (affirmative issuer-only appointments/departures with effective dates and replacements), insider classification (P/S/M/A/G/F/C/D, unknown preserved), source preservation (content-addressed raw + normalized evidence, retrieval provenance), importance tiers, idempotent refresh with revision tracking, and explicit error handling. Independent audits: security PARTIAL PASS (streaming size cap, redirect enforcement, dedup), provider FAIL→FIXED (leadership negation/quote rejection, amendment supersession, UTC timestamps, error-page rejection, Retry-After), reviewer FAIL→FIXED (leadership uncertainty, evidence scope, effective-order). All fixes verified by unit/live tests.
+**2026-10-07: Phase 7 IN PROGRESS.** Phase 6 COMPLETE (Offline: 157 passed, 19 skipped. Live: 143 passed, 4 skipped). Phase 7: EarningsIntelligenceProvider extracts EPS/revenue actuals, consensus, guidance from SEC 8-K Item 2.02, 10-Q, 10-K. EarningsReactionProvider computes reaction windows (pre-market, immediate AH, next session, 5-session) using Alpaca IEX data anchored to released_at. Timestamp semantics: filing_accepted_at (SEC acceptance) ≠ announcement_released_at (actual earnings release) tracked separately with release_time_source/release_time_precision. Unit tests: 31 new tests passing (15 earnings_intelligence + 16 earnings_reaction), all 43 earnings_parsers tests passing. All existing Phase 1-6 tests pass.
 
 **Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6 — COMPLETE**
+**Phase 7 — IN PROGRESS** (Nodes A-D complete: contracts, intelligence provider, reaction provider, offline tests)
 
 - **Phase 0 (Bootstrap)**: Python package skeleton, pyproject.toml, CLI, config loader, Pydantic models, logging, test setup
 - **Phase 1 (Offline Deterministic Scanner)**: Fixture market data, feature calculations, eligibility filters, quant scoring, top-N ranking, output artifacts, golden test
@@ -102,6 +103,12 @@ All Phase 0, 1, and 2 acceptance criteria met:
 | **SEC Parsers (Phase 6)** | `src/trading_copilot/providers/sec_parsers.py` |
 | **SEC Unit Tests (Phase 6)** | `tests/unit/test_sec_filings.py` (29) |
 | **SEC Live Integration (Phase 6)** | `tests/integration/test_sec_live.py` (1) |
+| **Earnings Intelligence Provider (Phase 7)** | `src/trading_copilot/providers/earnings_intelligence.py` |
+| **Earnings Reaction Provider (Phase 7)** | `src/trading_copilot/providers/earnings_reaction.py` |
+| **Earnings Parsers (Phase 7)** | `src/trading_copilot/providers/earnings_parsers.py` |
+| **Earnings Intelligence Unit Tests (Phase 7)** | `tests/unit/test_earnings_intelligence.py` (15) |
+| **Earnings Reaction Unit Tests (Phase 7)** | `tests/unit/test_earnings_reaction.py` (16) |
+| **Earnings Parsers Unit Tests (Phase 7)** | `tests/unit/test_earnings_parsers.py` (43) |
 
 ---
 
@@ -764,6 +771,16 @@ Tasks:
 - Independent audits: reviewer FAIL→PASS (leadership uncertainty, amendment supersession, effective-order); provider-auditor FAIL→PASS (negation/quote rejection, UTC timestamps, error pages, Retry-After); security-reviewer PARTIAL PASS (streaming size cap, redirect enforcement, dedup)
 - All tests: 157 passed, 19 skipped (offline); 143 passed, 4 skipped (live)
 - Next phase: Phase 7 — Earnings Intelligence + Reaction History
+
+### 2026-10-07 — Phase 7 Earnings Intelligence + Reaction History In Progress
+- Implemented EarningsIntelligenceProvider: extracts EPS/revenue actuals, consensus estimates, guidance from SEC 8-K Item 2.02, 10-Q, 10-K filings
+- Implemented EarningsReactionProvider: computes reaction windows (pre_market for BMO, immediate_ah, next_session, session_5) using Alpaca IEX market data
+- Corrected timestamp semantics: filing_accepted_at (SEC acceptance time) ≠ announcement_released_at (actual earnings release time); tracked separately with release_time_source and release_time_precision fields
+- Reaction windows anchored to released_at (actual release timestamp), not scheduled_at; lookahead-safe with explicit end boundaries
+- Added EARNINGS_RESULT, EARNINGS_GUIDANCE, EARNINGS_REACTION event types to EventType enum
+- Unit tests: 15 earnings_intelligence + 16 earnings_reaction + 43 earnings_parsers = 74 new tests passing
+- All existing Phase 1-6 tests pass (157 offline, 143 live)
+- Next: Node E (live integration tests), Node F (independent audits), Node G (integration + docs + commit)
 
 ### 2026-10-02 — GitHub Push: Phase 3 Complete
 - GitHub repository: https://github.com/sarthak-wadhawan/financial_model
