@@ -122,7 +122,7 @@ class SECExhibitProvider:
         """Fetch 8-K filings for a symbol within date range."""
         url = f"https://data.sec.gov/submissions/CIK{cik}.json"
         response = self.transport.get(url)
-        self._preserve(response.content, ".json")
+        _preserve(response.content, self.cache_dir, ".json")
         data = response.json()
 
         filings = []
@@ -150,7 +150,7 @@ class SECExhibitProvider:
                         or shard.get("filingTo") and date.fromisoformat(shard["filingTo"]) < from_date):
                     continue
                 shard_response = self.transport.get("https://data.sec.gov/submissions/" + name)
-                self._preserve(shard_response.content, ".json")
+                _preserve(shard_response.content, self.cache_dir, ".json")
                 shard_rows = self._rows(shard_response.json())
                 for row in shard_rows:
                     filing_date = date.fromisoformat(row["filingDate"])
@@ -180,32 +180,75 @@ class SECExhibitProvider:
         filing_date = filing_row["filingDate"]
         items = filing_row.get("items") or ""
 
-        # Fetch the main filing document to find exhibit references
-        primary = filing_row["primaryDocument"]
         base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}/"
-        filing_url = base + primary
+
+        # Try to get the index.json to find exhibit files
+        index_url = base + "index.json"
+        exhibit_files = []
 
         try:
-            filing_response = self.transport.get(filing_url)
-            self._preserve(filing_response.content, ".raw")
+            index_response = self.transport.get(base + "index.json")
+            _preserve(index_response.content, self.cache_dir, ".json")
+            index_data = index_response.json()
+            
+            # Look for exhibit files in the directory listing
+            for item in index_data.get("directory", {}).get("item", []):
+                name = item.get("name", "")
+                # Match exhibit files like a8-kex991q4202509272025.htm (ex991, ex992, ex993)
+                import re
+                match = re.search(r'(?:ex|EX)[-_]?(99[123])', name, re.IGNORECASE)
+                if match:
+                    # Convert 991 -> 99.1, 992 -> 99.2, 993 -> 99.3
+                    num = match.group(1)
+                    exhibit_num = f"{num[:2]}.{num[2]}"
+                    exhibit_files.append((exhibit_num, name))
+                # Also check for standard 99.1, 99.2, 99.3 in filename
+                elif re.search(r'99\.[123]', name, re.IGNORECASE):
+                    exhibit_match = re.search(r'(99\.[123])', name, re.IGNORECASE)
+                    if exhibit_match:
+                        exhibit_files.append((exhibit_match.group(1), name))
+                        
+        except Exception as exc:
+            self._error(symbol, "index_json", accession, exc)
+
+        # Also try the traditional method of finding exhibit references in the primary document
+        primary = filing_row["primaryDocument"]
+        filing_url = base + filing_row["primaryDocument"]
+
+        try:
+            filing_response = self.transport.get(base + filing_row["primaryDocument"])
+            _preserve(filing_response.content, self.cache_dir, ".raw")
             filing_html = filing_response.text
         except Exception as exc:
             self._error(symbol, "filing_document", accession, exc)
-            return documents
+            filing_html = ""
 
-        # Find exhibit references in filing (EX-99.1, EX-99.2, etc.)
-        exhibit_refs = self._find_exhibit_references(filing_html)
+        # Find exhibit references in filing (EX-99.1, EX-99.2, etc.) - traditional method
+        traditional_refs = self._find_exhibit_references(filing_html) if filing_html else []
 
-        for exhibit_num, exhibit_url in exhibit_refs:
-            if exhibit_num not in PRESS_RELEASE_EXHIBITS:
-                continue
+        # Combine exhibit references from index.json and traditional method
+        all_refs = []
+        for exhibit_num, filename in exhibit_files:
+            exhibit_url = base + filename
+            all_refs.append((exhibit_num, exhibit_url))
+        all_refs.extend(traditional_refs)
 
+        # Deduplicate by exhibit number
+        seen_exhibits = set()
+        unique_refs = []
+        for exhibit_num, exhibit_url in all_refs:
+            if exhibit_num in PRESS_RELEASE_EXHIBITS and exhibit_num not in seen_exhibits:
+                seen_exhibits.add(exhibit_num)
+                unique_refs.append((exhibit_num, exhibit_url))
+
+        for exhibit_num, exhibit_url in unique_refs:
             try:
                 exhibit_response = self.transport.get(exhibit_url)
-                self._preserve(exhibit_response.content, ".raw")
+                _preserve(exhibit_response.content, self.cache_dir, ".raw")
 
                 # Parse exhibit content
-                exhibit_text = filing_text(exhibit_response.text) if exhibit_response.headers.get("Content-Type", "").startswith("text/html") else exhibit_response.text
+                content_type = exhibit_response.headers.get("Content-Type", "")
+                exhibit_text = filing_text(exhibit_response.text) if content_type.startswith("text/html") else exhibit_response.text
 
                 if not exhibit_text or not exhibit_text.strip():
                     continue
@@ -213,6 +256,9 @@ class SECExhibitProvider:
                 # Create NewsDocument
                 content_hash = _sha256(exhibit_response.content)
                 retrieved = datetime.now(timezone.utc)
+
+                # Preserve raw exhibit content
+                _, raw_path = _preserve(exhibit_response.content, self.cache_dir, ".raw")
 
                 # Extract headline from first line or title
                 headline = self._extract_headline(exhibit_text, symbol)
@@ -237,6 +283,7 @@ class SECExhibitProvider:
                         "items": items,
                         "exhibit_number": exhibit_num,
                         "form": "8-K",
+                        "raw_path": raw_path,
                     },
                     dedup_key=f"sec_exhibit:{symbol}:{exhibit_num}:{filing_date}",
                     sec_filing_id=f"sec_edgar:{accession}",

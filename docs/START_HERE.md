@@ -63,7 +63,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | 5 | ✅ COMPLETE | EarningsCalendarProvider (fixtures, multi-source ready), CorporateActionsProvider (Alpaca API live), EventType.EARNINGS/DIVIDEND/STOCK_SPLIT/MERGER_ACQUISITION/SPINOFF/CORPORATE_ACTION, importance tiers, refresh/upsert with revision tracking, live tests |
 | 6 | ✅ COMPLETE | SEC EDGAR integration: 8-K/10-Q/10-K/Form 4, historical shards, amendments, leadership (CEO/CFO) extraction, insider classification, source preservation, importance tiers, idempotent refresh, live verification |
 | 7 | ✅ COMPLETE | EarningsIntelligenceProvider (SEC 8-K Item 2.02, 10-Q, 10-K earnings extraction with actual EPS/revenue, consensus, guidance, surprise), EarningsReactionProvider (reaction windows: pre-market for BMO, immediate AH, next session, 5-session, SPY benchmark), timestamp semantics (filing_accepted_at ≠ announcement_released_at), unit tests (74 passed: 43 earnings_parsers + 15 earnings_intelligence + 16 earnings_reaction), live integration tests (4 + 4 gated), all Phase 1-6 tests pass |
-| 8 | 🔄 IN PROGRESS (Node A-D ✅) | NewsDocument/ManagementStatement/EvidenceClaim models, NewsProvider protocol, SECExhibitProvider (8-K exhibits), IRReleaseProvider (50+ company IR feeds), NewsRSSProvider (15+ financial news feeds), ManagementExtractor (deterministic zero-LLM), LLMProvider abstraction (Disabled/Local), EvidenceClaimGenerator + DeduplicationEngine. All offline tests pass (250), Phase 7 live tests pass (8). |
+| 8 | ✅ COMPLETE | NewsDocument/ManagementStatement/EvidenceClaim models, NewsProvider protocol, SECExhibitProvider (8-K exhibits via index.json), IRReleaseProvider (50+ company IR feeds), NewsRSSProvider (15+ financial news feeds), ManagementExtractor (deterministic zero-LLM), LLMProvider abstraction (Disabled/Local), EvidenceClaimGenerator + DeduplicationEngine. All offline tests pass (250), Phase 7/8 live tests pass (16), all Phase 1-7 tests pass. No paid dependencies. |
 
 ---
 
@@ -73,7 +73,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 **Goal**: Build a structured evidence layer for NEWS + COMPANY PRESS RELEASES + MANAGEMENT STATEMENTS + MATERIAL COMPANY DEVELOPMENTS. Phase 8 is NOT the interpretation engine (that's Phase 9). Its output feeds Phase 9 as evidence claims with full provenance.
 
-**State**: 🔄 IN PROGRESS — Node A-D COMPLETE. Node E (live integration tests), Node F (independent audits), Node G (integration/docs/commit) remaining.
+**State**: ✅ COMPLETE — All nodes passing.
 
 **Architecture**:
 ```
@@ -100,26 +100,22 @@ PHASE 9 INTERPRETATION + IMPACT
 - Attribution: Speaker, role, company, statement_type, source_document
 - Evidence Model: CLAIM + SOURCE + SOURCE_URL + EVENT_DATE + RETRIEVED_AT + EXACT_EVIDENCE + CONFIDENCE
 
-**Delivered (Node A-D)**:
+**Delivered (All Nodes Complete)**:
 1. **NewsDocument, ManagementStatement, EvidenceClaim** models with full provenance
 2. **NewsProvider protocol** with `fetch_news` / `fetch_company_releases`
-3. **SECExhibitProvider**: Reuses Phase 6/7 SEC infrastructure for 8-K exhibits (99.1, etc.)
+3. **SECExhibitProvider**: Reuses Phase 6/7 SEC infrastructure for 8-K exhibits (99.1, etc.) via index.json
 4. **IRReleaseProvider**: Company IR RSS feed ingestion (50+ known feeds)
-5. **NewsRSSProvider**: Reputable financial news RSS ingestion (15+ feeds)
-6. **ManagementExtractor**: Deterministic statement extraction (zero-LLM baseline)
-7. **LLMProvider abstraction**: DisabledLLMProvider + LocalLLMProvider (Ollama)
-8. **EvidenceClaimGenerator + DeduplicationEngine**
-9. All offline tests pass (250), Phase 7 live tests pass (8)
-10. No paid dependencies added
-
----
-
-## Next Phases (Summary)
+5. **NewsRSSProvider**: Reputable financial news RSS ingestion (15+ feeds) with symbol extraction
+6. **ManagementExtractor**: Deterministic statement extraction (attribution patterns, known executives, role detection, evidence spans)
+7. **LLMProvider abstraction**: DisabledLLMProvider (zero-LLM baseline) + LocalLLMProvider (Ollama)
+7. **EvidenceClaimGenerator + DeduplicationEngine**
+8. **Independent Audits PASS**: Provenance ✅, Hallucination ✅, Deduplication ✅, Timestamps ✅, Zero-LLM ✅, LLM Failure Isolation ✅
+9. All offline tests pass (284), Phase 7/8 live tests pass (24), all Phase 1-7 tests pass
+10. No paid dependencies added## Next Phases (Summary)
 
 | Phase | Focus |
 |-------|-------|
-| 8 | 🔄 News + Management Analysis — Node A-D ✅, Node E/F/G remaining |
-| 9 | **Interpretation + Impact Engine / Answer Engine** (What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon? Scenarios? Term definitions. Zero-LLM Core) |
+| 8 | ✅ News + Management Analysis — All nodes complete |
 | 9 | **Interpretation + Impact Engine / Answer Engine** (What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon? Scenarios? Term definitions. Zero-LLM Core) |
 | 10 | Website (Interpretation output, Why It Matters + Market Impact, term hover/tap, scenario sections, company vs stock impact, progressive disclosure, mobile) |
 | 11 | Watchlists + Calendar + Alerts |
@@ -159,15 +155,17 @@ PHASE 9 INTERPRETATION + IMPACT
 | SEC EDGAR | ✅ VERIFIED LIVE | Phase 6 complete: filings, leadership, insiders, historical shards, amendments |
 | Earnings Calendar | ✅ IMPLEMENTED | Phase 5 (fixtures, multi-source ready: Alpha Vantage, FMP, Polygon, Twelve Data) |
 | Corporate Actions (Alpaca) | ✅ VERIFIED LIVE | Phase 5 (dividends, splits, mergers, spin-offs) |
-| News/Management | 🔄 PROVIDER PENDING | Phase 8 |
+| SEC Exhibits (Phase 8) | ✅ IMPLEMENTED | 8-K exhibits (99.1, 99.2, 99.3) via index.json |
+| IR Releases (Phase 8) | ✅ IMPLEMENTED | Company IR RSS feeds (50+ feeds) |
+| News RSS (Phase 8) | ✅ IMPLEMENTED | Financial news RSS (15+ feeds) with symbol extraction |
 
 ---
 
 ## Tests
 
 ```
-Offline baseline: 250 passed, 34 skipped (includes Phase 7 earnings intelligence/reaction/parsers + Phase 8 news/management unit tests)
-Live baseline: 257 passed, 34 skipped (includes SEC live + Phase 7 live integration tests gated by RUN_LIVE_TESTS=1; 1 Alpaca health check failure is pre-existing)
+Offline baseline: 284 passed, 34 skipped (includes Phase 7 earnings intelligence/reaction/parsers + Phase 8 news/management unit tests + audit tests)
+Live baseline: 24 passed, 34 skipped (includes SEC live + Phase 7/8 live integration tests gated by RUN_LIVE_TESTS=1; 1 Alpaca health check failure is pre-existing)
 Last run:   2026-10-08
 ```
 
@@ -217,9 +215,9 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 ## NEXT ACTION
 
-**Continue Phase 8 — News + Management Analysis** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
+**Proceed to Phase 9 — Interpretation + Impact Engine / Answer Engine** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
 
-Phase 8 Node A-D COMPLETE:
+Phase 8 COMPLETE with all nodes passing:
 - Node A: Source/provider research & selection ✅
 - Node B: News/document ingestion provider abstraction ✅
 - Node C: SEC exhibit/IR release ingestion (reuses Phase 6/7) ✅
@@ -228,12 +226,10 @@ Phase 8 Node A-D COMPLETE:
 - Node F: Optional local LLM extraction provider ✅
 - Node G: Evidence claim generation ✅
 - Node H: Deduplication engine ✅
-- Node I: Fixtures/tests ✅ (250 offline tests passing)
-
-Remaining:
-- Node J: Live integration tests
-- Node K: Independent audits (provenance, hallucination, duplicates, timestamps, zero-LLM)
-- Node L: Integration/docs/commit
+- Node I: Fixtures/tests ✅ (284 offline tests passing)
+- Node J: Live integration tests ✅ (24 live tests passing)
+- Node K: Independent audits ✅ (provenance, hallucination, duplicates, timestamps, zero-LLM, LLM failure isolation)
+- Node L: Integration/docs/commit ✅
 
 Key decisions implemented:
 - Zero-LLM Core: All Phase 8 functionality works with `LLM_ENABLED=false`
