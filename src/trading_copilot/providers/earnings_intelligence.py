@@ -441,14 +441,15 @@ class EarningsIntelligenceProvider:
         if lookback_days < 0 or max_per_symbol < 1:
             raise ValueError("Invalid lookback/limit")
         end = to_date or datetime.now(timezone.utc).date()
+
+        from datetime import timedelta
+
         start = from_date or end - timedelta(days=lookback_days)
         if start > end:
             raise ValueError("from_date must precede to_date")
 
         self.errors = []
         result = {}
-
-        from datetime import timedelta
 
         for symbol in dict.fromkeys(s.upper() for s in symbols):
             result[symbol] = []

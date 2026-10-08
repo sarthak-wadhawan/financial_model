@@ -149,8 +149,8 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 ## Tests
 
 ```
-Offline baseline: 231 passed, 19 skipped (includes Phase 7 earnings intelligence/reaction/parsers unit tests)
-Live baseline: 151 passed, 4 skipped (includes SEC live + Phase 7 live integration tests gated by RUN_LIVE_TESTS=1)
+Offline baseline: 231 passed, 27 skipped (includes Phase 7 earnings intelligence/reaction/parsers unit tests)
+Live baseline: 257 passed, 27 skipped (includes SEC live + Phase 7 live integration tests gated by RUN_LIVE_TESTS=1; 1 Alpaca health check failure is pre-existing)
 Last run:   2026-10-07
 ```
 

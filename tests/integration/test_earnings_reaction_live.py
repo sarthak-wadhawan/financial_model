@@ -244,7 +244,7 @@ def test_earnings_reaction_reproducibility(alpaca_provider):
             assert counts2["ERROR"] == 0
             
             # Both should produce UNCHANGED on second run (or same NEW count)
-            events1 = store.events_for_symbol("AAPL", [EventType.EARNINGS_REACTION], limit=10)
+            events1 = store.events_for_symbol(symbol="AAPL", event_types=[EventType.EARNINGS_REACTION], limit=10)
             
             # Should have at least one reaction
             assert len(events1) >= 1

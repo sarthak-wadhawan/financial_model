@@ -486,3 +486,7 @@ class EarningsReactionProvider:
             limit=limit,
         )
         return sorted(events, key=lambda e: e.released_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+    def close(self):
+        """Close any resources."""
+        pass
