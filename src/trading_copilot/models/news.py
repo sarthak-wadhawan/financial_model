@@ -163,8 +163,9 @@ class DeduplicationResult(BaseModel):
 # Statement type detection patterns (for deterministic extraction)
 STATEMENT_TYPE_PATTERNS = {
     StatementType.GUIDANCE: [
-        r"(?:expect|anticipate|project|forecast|guidance|outlook).*?(?:revenue|sales|earnings|EPS|margin).*?(?:\$|percent|%)",
+        r"(?:expect|anticipate|project|forecast|guidance|outlook).*?(?:revenue|sales|earnings|EPS|margin).*?(?:\$|percent|%|grow|increas|decreas)",
         r"(?:guidance|outlook).*?(?:raise|lower|maintain|reaffirm)",
+        r"(?:expect|anticipate|project).*?(?:revenue|sales|earnings|EPS|margin).*?(?:grow|increas|decreas|strong|weak)",
     ],
     StatementType.DEMAND: [
         r"(?:demand|order|booking|backlog).*?(?:strong|weak|accelerat|decelerat|soft|robust)",
@@ -181,20 +182,22 @@ STATEMENT_TYPE_PATTERNS = {
     StatementType.CAPEX: [
         r"(?:capital expenditure|capex|investment).*?(?:increas|decreas|\$|billion|million)",
         r"(?:factory|plant|facility|capacity).*?(?:expand|build|invest)",
+        r"(?:investing|invest).*?(?:factory|plant|facility|capacity|infrastructure)",
     ],
     StatementType.COMPETITION: [
-        r"(?:competitor|competition|market share).*?(?:gain|lose|intensify|rational)",
+        r"(?:competitor|competition|market share).*?(?:gain|lose|intensify|rational|intense)",
         r"(?:pricing pressure|competitive landscape)",
     ],
     StatementType.PRODUCT: [
         r"(?:product|launch|release|innovation|pipeline).*?(?:new|upcoming|delay|accelerat)",
+        r"(?:new|upcoming).*?(?:product|launch|release|innovation|pipeline)",
         r"(?:R&D|research|development).*?(?:invest|spend|focus)",
     ],
     StatementType.REGULATION: [
         r"(?:regulatory|regulation|FDA|SEC|antitrust|compliance).*?(?:approv|deny|investigat|chang|impact)",
     ],
     StatementType.SUPPLY: [
-        r"(?:supply chain|supplier|inventory|shortage|constraint).*?(?:improv|degrad|resolv|persist)",
+        r"(?:supply chain|supplier|inventory|shortage|constraint).*?(?:improv|degrad|resolv|persist|constraint|constrain)",
     ],
     StatementType.PRICING: [
         r"(?:pricing|price).*?(?:increas|decreas|hike|cut|pressure|power|flexibility)",
@@ -203,7 +206,7 @@ STATEMENT_TYPE_PATTERNS = {
         r"(?:strategic|strategy|acquisition|divestiture|partnership|joint venture).*?(?:announc|complet|explor|pursu)",
     ],
     StatementType.RISKS: [
-        r"(?:risk|uncertainty|challenge|headwind).*?(?:material|significant|elevat|increas)",
+        r"(?:risk|uncertainty|challenge|headwind).*?(?:material|significant|elevat|increas|of|recession)",
         r"(?:guidance|outlook).*?(?:risk|assum|depend)",
     ],
     StatementType.MACRO: [
@@ -241,6 +244,7 @@ SPEAKER_ROLE_PATTERNS = [
     (r"\b(?:director|board member)\b", "Director"),
     (r"\b(?:senior vice president|SVP)\b", "SVP"),
     (r"\b(?:executive vice president|EVP)\b", "EVP"),
+    (r"\b(?:executive)\b", "Executive"),
 ]
 
 
@@ -254,7 +258,7 @@ def detect_speaker_role(text: str) -> Optional[str]:
     return None
 
 
-def extract_speaker_name(text: str, known_executives: dict[str, str] | None = None) -> Optional[str]:
+def extract_speaker_name(text: str, known_executives: dict[str, dict[str, str]] | None = None) -> Optional[str]:
     """Extract speaker name from text. Returns UNKNOWN if not found."""
     import re
 
@@ -262,6 +266,7 @@ def extract_speaker_name(text: str, known_executives: dict[str, str] | None = No
     patterns = [
         r"([A-Z][a-z]+\s+[A-Z][a-z]+),?\s+(?:CEO|CFO|COO|CTO|President|Chairman|VP|SVP|EVP|director|executive)\b",
         r"(?:said|stated|noted|commented|added)\s+([A-Z][a-z]+\s+[A-Z][a-z]+),?\s+(?:CEO|CFO|COO|CTO|President|Chairman|VP|SVP|EVP|director|executive)",
+        r"(?:said|stated|noted|commented|added)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)\b",
         r"([A-Z][a-z]+\s+[A-Z][a-z]+)\s+(?:said|stated|noted|commented|added)",
     ]
 
@@ -271,9 +276,14 @@ def extract_speaker_name(text: str, known_executives: dict[str, str] | None = No
             name = match.group(1).strip()
             # Validate against known executives if provided
             if known_executives:
-                for exec_name in known_executives:
-                    if exec_name.lower() in name.lower() or name.lower() in exec_name.lower():
-                        return exec_name
+                # known_executives is dict[symbol] -> dict[name] -> role
+                matched = False
+                for symbol_execs in known_executives.values():
+                    for exec_name in symbol_execs:
+                        if exec_name.lower() in name.lower() or name.lower() in exec_name.lower():
+                            return exec_name
+                # If known_executives provided but no match, continue to next pattern
+                continue
             return name
 
     return "UNKNOWN"

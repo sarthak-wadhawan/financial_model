@@ -287,18 +287,54 @@ class IRReleaseProvider:
         """Strip HTML tags and clean whitespace."""
         if not html:
             return ""
+        # Decode HTML entities FIRST (before tag removal to preserve < > as text)
+        text = html.replace("&nbsp;", " ")
+        text = text.replace("<", "<").replace(">", ">").replace("&", "&")
+        text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+        text = text.replace('"', '"').replace("'", "'")
+        
+        # NOW remove HTML tags (entities already decoded)
         # Remove script/style
-        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.IGNORECASE | re.DOTALL)
         # Replace block elements with newlines
         text = re.sub(r"</(p|div|br|h[1-6]|li|tr|td|th)>", "\n", text, flags=re.IGNORECASE)
-        # Remove remaining tags
-        text = re.sub(r"<[^>]+>", "", text)
-        # Decode HTML entities
-        text = text.replace("&nbsp;", " ").replace("&", "&").replace("<", "<").replace(">", ">")
-        text = text.replace('"', '"').replace('\'', "'")
+        # Remove remaining tags (but be careful not to remove mathematical < >)
+        # Only remove tags that look like HTML tags (start with letter, no spaces after <)
+        text = re.sub(r"<([a-zA-Z][a-zA-Z0-9]*)[^>]*>", "", text)
+        text = re.sub(r"</([a-zA-Z][a-zA-Z0-9]*)>", "", text)
         # Normalize whitespace
         text = re.sub(r"\s+", " ", text)
         return text.strip()
+
+    def _extract_symbol(self, text: str, known_symbols: set[str] | None = None) -> str | None:
+        """Extract stock symbol from text."""
+        # Common patterns for stock symbols in news/IR
+        patterns = [
+            r"\b([A-Z]{1,5})\s*\((?:NYSE|NASDAQ|NYSE MKT)\)",  # AAPL (NASDAQ)
+            r"\b(NYSE|NASDAQ):\s*([A-Z]{1,5})\b",  # NASDAQ: AAPL
+            r"\$([A-Z]{1,5})\b",  # $AAPL
+            r"\b([A-Z]{1,5})\s+stock\b",  # AAPL stock
+            r"\b([A-Z]{1,5})\s+shares?\b",  # AAPL shares
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                symbol = match.group(1).upper()
+                if known_symbols and symbol in known_symbols:
+                    return symbol
+                if not known_symbols:
+                    # Basic validation: 1-5 chars, all caps
+                    if 1 <= len(symbol) <= 5 and symbol.isalpha():
+                        return symbol
+
+        # Fallback: look for known symbols in text
+        if known_symbols:
+            for sym in known_symbols:
+                if f" {sym} " in f" {text} " or f" {sym}." in text or f"({sym})" in text:
+                    return sym
+
+        return None
 
     def close(self):
         pass

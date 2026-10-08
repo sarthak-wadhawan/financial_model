@@ -227,15 +227,21 @@ class NewsRSSProvider:
         """Strip HTML tags and clean whitespace."""
         if not html:
             return ""
+        # Decode HTML entities FIRST (before tag removal to preserve < > as text)
+        text = html.replace("&nbsp;", " ")
+        text = text.replace("<", "<").replace(">", ">").replace("&", "&")
+        text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+        text = text.replace('"', '"').replace("'", "'")
+        
+        # NOW remove HTML tags (entities already decoded)
         # Remove script/style
-        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.IGNORECASE | re.DOTALL)
         # Replace block elements with newlines
         text = re.sub(r"</(p|div|br|h[1-6]|li|tr|td|th)>", "\n", text, flags=re.IGNORECASE)
-        # Remove remaining tags
-        text = re.sub(r"<[^>]+>", "", text)
-        # Decode HTML entities
-        text = text.replace("&nbsp;", " ").replace("&", "&").replace("<", "<").replace(">", ">")
-        text = text.replace('"', '"').replace('\'', "'")
+        # Remove remaining tags (but be careful not to remove mathematical < >)
+        # Only remove tags that look like HTML tags (start with letter, no spaces after <)
+        text = re.sub(r"<([a-zA-Z][a-zA-Z0-9]*)[^>]*>", "", text)
+        text = re.sub(r"</([a-zA-Z][a-zA-Z0-9]*)>", "", text)
         # Normalize whitespace
         text = re.sub(r"\s+", " ", text)
         return text.strip()

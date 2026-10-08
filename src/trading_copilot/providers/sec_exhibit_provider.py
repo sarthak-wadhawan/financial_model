@@ -253,7 +253,19 @@ class SECExhibitProvider:
         """Find exhibit references in 8-K filing HTML."""
         refs = []
 
-        # Pattern: EX-99.1, EX-99.2, etc. with href
+        # Pattern 1: EX-99.1 in link text with href
+        # <a href="...">EX-99.1</a> or <a href="...">Exhibit 99.1</a>
+        link_pattern = r'<a\s+[^>]*href\s*=\s*["\']([^"\']+)["\'][^>]*>\s*(?:EX|Exhibit)\s*[-:]?\s*(99\.\d+)\s*</a>'
+        for match in re.finditer(link_pattern, html, re.IGNORECASE):
+            url = match.group(1)
+            exhibit_num = match.group(2)
+            if url.startswith("/"):
+                url = "https://www.sec.gov" + url
+            elif not url.startswith("http"):
+                pass
+            refs.append((exhibit_num, url))
+
+        # Pattern 2: EX-99.1 appears before href in text
         exhibit_pattern = r'(?:EX|Exhibit)\s*[-:]?\s*(99\.\d+).*?href\s*=\s*["\']([^"\']+)["\']'
         for match in re.finditer(exhibit_pattern, html, re.IGNORECASE):
             exhibit_num = match.group(1)
@@ -261,7 +273,6 @@ class SECExhibitProvider:
             if url.startswith("/"):
                 url = "https://www.sec.gov" + url
             elif not url.startswith("http"):
-                # Relative URL - will be resolved by caller
                 pass
             refs.append((exhibit_num, url))
 

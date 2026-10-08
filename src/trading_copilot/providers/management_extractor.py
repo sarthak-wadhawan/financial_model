@@ -34,13 +34,17 @@ QUOTE_PATTERNS = [
 ]
 
 # Attribution patterns: "X said", "said X", "X stated", etc.
+# Verb part is case-insensitive, name part is case-sensitive (uses [A-Z][a-z]+)
+ATTRIBUTION_VERBS = r"(?i:said|stated|noted|commented|added|explained|mentioned|indicated|observed|remarked)"
+ATTRIBUTION_VERBS_NO_CAPTURE = r"(?:said|stated|noted|commented|added|explained|mentioned|indicated|observed|remarked)"
+
 ATTRIBUTION_PATTERNS = [
-    # "John Smith said..."
-    r"([A-Z][a-z]+\s+[A-Z][a-z]+)\s+(?:said|stated|noted|commented|added|explained|mentioned|indicated|observed|remarked)\b",
-    # "said John Smith..."
-    r"(?:said|stated|noted|commented|added|explained|mentioned|indicated|observed|remarked)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)\b",
+    # "John Smith said..." (case-sensitive for name)
+    rf"([A-Z][a-z]+\s+[A-Z][a-z]+)\s+{ATTRIBUTION_VERBS}\b",
+    # "said John Smith..." (case-sensitive for name)
+    rf"{ATTRIBUTION_VERBS}\s+([A-Z][a-z]+\s+[A-Z][a-z]+)\b",
     # "According to John Smith..."
-    r"(?:according to)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)\b",
+    r"(?i:according to)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)\b",
     # "John Smith, CEO, said..."
     r"([A-Z][a-z]+\s+[A-Z][a-z]+),\s+(?:CEO|CFO|COO|CTO|President|Chairman|VP|SVP|EVP|director|executive)\b",
     # "CEO John Smith said..."
@@ -89,16 +93,40 @@ class ManagementExtractor:
         statements: list[ManagementStatement] = []
 
         try:
-            # Split into sentences
-            sentences = self._split_sentences(document.body)
+            # Find all attribution matches in the full text
+            all_matches = []
+            for pattern in ATTRIBUTION_PATTERNS:
+                for match in re.finditer(pattern, document.body):
+                    speaker_name = match.group(1).strip()
+                    if speaker_name:
+                        all_matches.append({
+                            'speaker': speaker_name,
+                            'start': match.start(),
+                            'end': match.end(),
+                            'pattern': pattern,
+                        })
 
-            # Find attributed statements
-            for i, sentence in enumerate(sentences):
-                statement = self._extract_from_sentence(
-                    sentence=sentence,
-                    sentence_index=i,
+            # Sort matches by position in text
+            all_matches.sort(key=lambda x: x['start'])
+
+            # Deduplicate: same speaker within 50 chars = same attribution
+            deduped_matches = []
+            for match in all_matches:
+                if not deduped_matches:
+                    deduped_matches.append(match)
+                else:
+                    last = deduped_matches[-1]
+                    if match['speaker'] == last['speaker'] and match['start'] - last['start'] < 50:
+                        continue  # Skip duplicate
+                    deduped_matches.append(match)
+
+            # Extract statement for each unique attribution
+            for i, match_info in enumerate(deduped_matches):
+                statement = self._extract_from_match(
+                    match_info=match_info,
+                    match_index=i,
+                    all_matches=deduped_matches,
                     document=document,
-                    all_sentences=sentences,
                 )
                 if statement:
                     statements.append(statement)
@@ -121,60 +149,65 @@ class ManagementExtractor:
         sentences = [s.replace('<DOT>', '.').strip() for s in sentences]
         return [s for s in sentences if len(s) >= self.min_length]
 
-    def _extract_from_sentence(
+    def _extract_from_match(
         self,
-        sentence: str,
-        sentence_index: int,
+        match_info: dict,
+        match_index: int,
+        all_matches: list[dict],
         document: NewsDocument,
-        all_sentences: list[str],
     ) -> ManagementStatement | None:
-        """Extract management statement from a single sentence."""
-        # Check for attribution patterns
-        speaker_name = None
+        """Extract management statement from a match in the full text."""
+        speaker_name = match_info['speaker']
+        match_start = match_info['start']
+        match_end = match_info['end']
+
+        # FIRST: Check known executives for this speaker
         speaker_role = None
-
-        for pattern in ATTRIBUTION_PATTERNS:
-            match = re.search(pattern, sentence, re.IGNORECASE)
-            if match:
-                speaker_name = match.group(1).strip()
-                break
-
-        if not speaker_name:
-            return None
-
-        # Detect role from sentence
-        speaker_role = detect_speaker_role(sentence)
-
-        # If role not found, check known executives
-        if not speaker_role and document.symbol:
+        if document.symbol:
             known = self.known_executives.get(document.symbol, {})
             for name, role in known.items():
                 if name.lower() in speaker_name.lower() or speaker_name.lower() in name.lower():
                     speaker_role = role
                     break
 
-        # Build statement text (current sentence + next 1-2 if they continue the thought)
-        statement_parts = [sentence]
-        for j in range(sentence_index + 1, min(sentence_index + 3, len(all_sentences))):
-            next_sent = all_sentences[j]
-            # Check if next sentence continues (no new attribution, same topic)
-            if not any(re.search(p, next_sent, re.IGNORECASE) for p in ATTRIBUTION_PATTERNS):
-                statement_parts.append(next_sent)
-            else:
-                break
+        # SECOND: If not found in known executives, detect from context BEFORE the match
+        if not speaker_role:
+            # Only look at text BEFORE the match for role detection
+            context_start = max(0, match_start - 60)
+            context = document.body[context_start:match_start]
+            speaker_role = detect_speaker_role(context)
 
-        statement_text = " ".join(statement_parts)
-        if len(statement_text) > self.max_length:
-            statement_text = statement_text[:self.max_length]
+            # Also check text immediately AFTER match start (for "CEO Name" patterns where role precedes name)
+            if not speaker_role:
+                after_context = document.body[match_start:match_start + 30]
+                speaker_role = detect_speaker_role(after_context)
+
+        # Determine statement text: from match end to next match start (or end of text)
+        statement_start = match_end
+        if match_index + 1 < len(all_matches):
+            statement_end = all_matches[match_index + 1]['start']
+        else:
+            statement_end = len(document.body)
+
+        statement_text = document.body[statement_start:statement_end].strip()
+        
+        # Also include the attribution part for context
+        full_statement = document.body[match_start:statement_end].strip()
+        
+        if len(full_statement) > self.max_length:
+            full_statement = full_statement[:self.max_length]
+
+        if len(full_statement) < self.min_length:
+            return None
 
         # Determine statement type
-        statement_type = detect_statement_type(statement_text)
+        statement_type = detect_statement_type(full_statement)
 
         # Find evidence span in original document
-        evidence_span = self._find_evidence_span(statement_text, document.body)
+        evidence_span = self._find_evidence_span(full_statement, document.body)
 
         # Generate IDs
-        content_hash = _sha256(statement_text)
+        content_hash = _sha256(full_statement)
         stmt_id = f"stmt:{document.symbol}:{content_hash[:16]}"
 
         return ManagementStatement(
@@ -182,16 +215,16 @@ class ManagementExtractor:
             symbol=document.symbol or "UNKNOWN",
             speaker=speaker_name,
             speaker_role=speaker_role,
-            statement=statement_text,
+            statement=full_statement,
             statement_type=statement_type,
             source_document_id=document.document_id,
             source_url=document.source_url,
             published_at=document.published_at,
-            event_date=document.published_at,  # Default to published date
+            event_date=document.published_at,
             retrieved_at=document.retrieved_at,
             evidence_span=evidence_span,
             extraction_method=ExtractionMethod.DETERMINISTIC,
-            confidence=0.8 if speaker_role else 0.6,  # Lower confidence if role unknown
+            confidence=0.8 if speaker_role else 0.6,
             source_type=document.source_type,
             provider_id=document.provider_id,
         )
@@ -213,7 +246,7 @@ class ManagementExtractor:
                 # Check text before quote
                 before_text = document.body[max(0, match.start() - 300):match.start()]
                 for pattern in ATTRIBUTION_PATTERNS:
-                    attr_match = re.search(pattern, before_text, re.IGNORECASE)
+                    attr_match = re.search(pattern, before_text)
                     if attr_match:
                         speaker_name = attr_match.group(1).strip()
                         break
@@ -222,7 +255,7 @@ class ManagementExtractor:
                 if speaker_name == "UNKNOWN":
                     after_text = document.body[match.end():match.end() + 300]
                     for pattern in ATTRIBUTION_PATTERNS:
-                        attr_match = re.search(pattern, after_text, re.IGNORECASE)
+                        attr_match = re.search(pattern, after_text)
                         if attr_match:
                             speaker_name = attr_match.group(1).strip()
                             break

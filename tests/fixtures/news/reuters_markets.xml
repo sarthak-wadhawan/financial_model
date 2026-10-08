@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>Reuters Markets News</title>
+<link>https://www.reuters.com/markets/</link>
+<description>Latest market news from Reuters</description>
+<language>en-us</language>
+<item>
+<title>AAPL beats Q3 estimates on strong iPhone sales</title>
+<link>https://www.reuters.com/technology/aapl-beats-q3-2026-10-29/</link>
+<description>Apple Inc (AAPL.O) reported third-quarter earnings that beat Wall Street estimates, driven by stronger-than-expected iPhone sales. CEO Tim Cook said "We are very pleased with our results." The company reported EPS of $1.55 vs $1.42 consensus.</description>
+<pubDate>Thu, 29 Oct 2026 21:30:00 GMT</pubDate>
+<guid>https://www.reuters.com/technology/aapl-beats-q3-2026-10-29/</guid>
+</item>
+<item>
+<title>MSFT cloud growth accelerates in Q1</title>
+<link>https://www.reuters.com/technology/msft-cloud-q1-2026-10-24/</link>
+<description>Microsoft Corp (MSFT.O) reported first-quarter revenue above estimates, with Azure growth accelerating to 30%. CEO Satya Nadella said "We are seeing strong demand across our cloud portfolio."</description>
+<pubDate>Tue, 24 Oct 2026 20:00:00 GMT</pubDate>
+<guid>https://www.reuters.com/technology/msft-cloud-q1-2026-10-24/</guid>
+</item>
+<item>
+<title>Fed holds rates steady, signals one more hike</title>
+<link>https://www.reuters.com/markets/us/fed-rates-2026-10-28/</link>
+<description>The Federal Reserve held interest rates steady at 5.25%-5.50% but signaled one more rate hike this year. Chair Jerome Powell said "Inflation remains above target."</description>
+<pubDate>Wed, 28 Oct 2026 18:00:00 GMT</pubDate>
+<guid>https://www.reuters.com/markets/us/fed-rates-2026-10-28/</guid>
+</item>
+</channel>
+</rss>

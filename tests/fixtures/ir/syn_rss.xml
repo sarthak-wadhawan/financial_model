@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>SYN Investor Relations News</title>
+<link>https://investor.syn.com</link>
+<description>Press releases from Synthetic Corp</description>
+<language>en-us</language>
+<item>
+<title>Synthetic Corp Reports Third Quarter Fiscal Year 2026 Results</title>
+<link>https://investor.syn.com/news/2026-10-29</link>
+<description>Synthetic Corp (NASDAQ: SYN) today announced financial results for the third quarter of fiscal year 2026. CEO Alice Example said "We are pleased to report strong Q3 results with revenue growth of 9% year-over-year." CFO Bob Sample stated that diluted earnings per share of $1.55 exceeded guidance range.</description>
+<pubDate>Thu, 29 Oct 2026 21:00:00 GMT</pubDate>
+<guid>https://investor.syn.com/news/2026-10-29</guid>
+</item>
+<item>
+<title>Synthetic Corp Announces New Product Launch</title>
+<link>https://investor.syn.com/news/2026-09-15</link>
+<description>Synthetic Corp announced the launch of SynAI 2.0. CEO Alice Example said "This represents a major step forward in our AI strategy." The product is expected to launch in Q1 FY2027.</description>
+<pubDate>Tue, 15 Sep 2026 14:00:00 GMT</pubDate>
+<guid>https://investor.syn.com/news/2026-09-15</guid>
+</item>
+<item>
+<title>Synthetic Corp Provides Q4 FY2026 Guidance</title>
+<link>https://investor.syn.com/news/2026-10-01</link>
+<description>Synthetic Corp provided guidance for Q4 FY2026. The company expects EPS of $1.60 to $1.70 and revenue of $91B to $93B. CFO Bob Sample noted "We are raising guidance based on strong demand trends."</description>
+<pubDate>Thu, 01 Oct 2026 16:00:00 GMT</pubDate>
+<guid>https://investor.syn.com/news/2026-10-01</guid>
+</item>
+</channel>
+</rss>
