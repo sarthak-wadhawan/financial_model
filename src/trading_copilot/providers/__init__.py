@@ -18,6 +18,12 @@ from trading_copilot.providers.earnings_parsers import extract_eps_revenue, extr
 from trading_copilot.providers.corporate_actions import CorporateActionsProvider
 from trading_copilot.providers.filing_provider import SECFilingProvider
 from trading_copilot.providers.sec_cik_map import SECCIKMap
+from trading_copilot.providers.sec_exhibit_provider import SECExhibitProvider
+from trading_copilot.providers.ir_release_provider import IRReleaseProvider
+from trading_copilot.providers.news_rss_provider import NewsRSSProvider
+from trading_copilot.providers.management_extractor import ManagementExtractor, COMMON_EXECUTIVES
+from trading_copilot.providers.llm_provider import LLMProvider, DisabledLLMProvider, LocalLLMProvider, create_llm_provider
+from trading_copilot.providers.evidence_claims import EvidenceClaimGenerator, DeduplicationEngine, create_evidence_claim_generator, create_deduplication_engine
 
 __all__ = [
     "UniverseProvider",
@@ -39,4 +45,17 @@ __all__ = [
     "CorporateActionsProvider",
     "SECFilingProvider",
     "SECCIKMap",
+    "SECExhibitProvider",
+    "IRReleaseProvider",
+    "NewsRSSProvider",
+    "ManagementExtractor",
+    "COMMON_EXECUTIVES",
+    "LLMProvider",
+    "DisabledLLMProvider",
+    "LocalLLMProvider",
+    "create_llm_provider",
+    "EvidenceClaimGenerator",
+    "DeduplicationEngine",
+    "create_evidence_claim_generator",
+    "create_deduplication_engine",
 ]

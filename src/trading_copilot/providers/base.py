@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 
 from trading_copilot.models.market import DailyBar, SymbolInfo
 from trading_copilot.models.sources import SourceDocument
+from trading_copilot.models.news import NewsDocument
 
 
 class UniverseProvider(Protocol):
@@ -38,14 +39,27 @@ class MarketDataProvider(Protocol):
 
 
 class NewsProvider(Protocol):
-    """Protocol for news providers."""
+    """Protocol for news/document providers.
 
-    def get_news(
+    Phase 8: structured evidence layer for news, company releases, management statements.
+    """
+
+    def fetch_news(
         self,
-        symbols: list[str],
-        lookback_days: int,
-        max_per_symbol: int,
-    ) -> dict[str, list[SourceDocument]]:
+        symbols: list[str] | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> list[NewsDocument]:
+        """Fetch news articles for symbols within date range."""
+        ...
+
+    def fetch_company_releases(
+        self,
+        symbols: list[str] | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> list[NewsDocument]:
+        """Fetch company press releases (IR, SEC exhibits)."""
         ...
 
 
