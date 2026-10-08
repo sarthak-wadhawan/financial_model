@@ -24,6 +24,9 @@ from trading_copilot.providers.news_rss_provider import NewsRSSProvider
 from trading_copilot.providers.management_extractor import ManagementExtractor, COMMON_EXECUTIVES
 from trading_copilot.providers.llm_provider import LLMProvider, DisabledLLMProvider, LocalLLMProvider, create_llm_provider
 from trading_copilot.providers.evidence_claims import EvidenceClaimGenerator, DeduplicationEngine, create_evidence_claim_generator, create_deduplication_engine
+from trading_copilot.intelligence.interpretation_engine import InterpretationEngine, create_interpretation_engine
+from trading_copilot.answers.answer_engine import AnswerEngine, create_answer_engine
+from trading_copilot.terms.term_service import TermDefinitionService, get_term_service, get_term_definition
 
 __all__ = [
     "UniverseProvider",
@@ -58,4 +61,11 @@ __all__ = [
     "DeduplicationEngine",
     "create_evidence_claim_generator",
     "create_deduplication_engine",
+    "InterpretationEngine",
+    "create_interpretation_engine",
+    "AnswerEngine",
+    "create_answer_engine",
+    "TermDefinitionService",
+    "get_term_service",
+    "get_term_definition",
 ]

@@ -29,6 +29,29 @@ from trading_copilot.models.news import (
     detect_speaker_role,
     extract_speaker_name,
 )
+from trading_copilot.models.interpretation import (
+    ImpactDirection,
+    ImpactMagnitude,
+    TimeHorizon,
+    StockBias,
+    ConfidenceLevel,
+    ScenarioType,
+    EvidenceRef,
+    CompanyImpact,
+    StockImpact,
+    Scenario,
+    ViewChangeTrigger,
+    Interpretation,
+    InterpretationRequest,
+    Answer,
+    AnswerRequest,
+)
+from trading_copilot.terms.term_service import (
+    TermDefinition,
+    TermDefinitionService,
+    get_term_definition,
+    get_term_service,
+)
 
 __all__ = [
     "SymbolInfo",
@@ -63,4 +86,23 @@ __all__ = [
     "detect_statement_type",
     "detect_speaker_role",
     "extract_speaker_name",
+    "ImpactDirection",
+    "ImpactMagnitude",
+    "TimeHorizon",
+    "StockBias",
+    "ConfidenceLevel",
+    "ScenarioType",
+    "EvidenceRef",
+    "CompanyImpact",
+    "StockImpact",
+    "Scenario",
+    "ViewChangeTrigger",
+    "Interpretation",
+    "InterpretationRequest",
+    "Answer",
+    "AnswerRequest",
+    "TermDefinition",
+    "TermDefinitionService",
+    "get_term_definition",
+    "get_term_service",
 ]

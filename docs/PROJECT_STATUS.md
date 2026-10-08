@@ -387,11 +387,12 @@ Result:
 - Integration tests: 24 passed (4 scan + 8 macro calendar live + 2 earnings_calendar live + 4 corporate_actions_live + 1 sec_live + 4 earnings_intelligence_live + 4 earnings_reaction_live + 7 phase8_live)
 - Live Phase 7 tests: 8 passed (4 earnings_intelligence_live + 4 earnings_reaction_live, RUN_LIVE_TESTS=1)
 - Live Phase 8 tests: 16 passed (4 earnings_intelligence_live + 4 earnings_reaction_live + 7 phase8_live + 1 sec_live, RUN_LIVE_TESTS=1)
+- Live Phase 9 tests: 24 passed (Phase 7/8/9 live tests, RUN_LIVE_TESTS=1)
 - Live Alpaca tests: 3 passed, 1 failed (health check - pre-existing API issue, RUN_LIVE_TESTS=1)
 - Live Macro Calendar tests: 8 passed (RUN_LIVE_TESTS=1)
 - Live SEC test: 1 passed (RUN_LIVE_TESTS=1, SEC_USER_AGENT configured)
 
-All offline tests pass. Phase 7/8 live tests pass. One pre-existing Alpaca health check failure unrelated to Phase 7/8.
+All offline tests pass. Phase 7/8/9 live tests pass (24). One pre-existing Alpaca health check failure unrelated to Phase 7/8/9.
 
 ### Phase 6 Independent Audit Results
 

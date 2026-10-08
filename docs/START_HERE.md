@@ -64,14 +64,31 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | 6 | ✅ COMPLETE | SEC EDGAR integration: 8-K/10-Q/10-K/Form 4, historical shards, amendments, leadership (CEO/CFO) extraction, insider classification, source preservation, importance tiers, idempotent refresh, live verification |
 | 7 | ✅ COMPLETE | EarningsIntelligenceProvider (SEC 8-K Item 2.02, 10-Q, 10-K earnings extraction with actual EPS/revenue, consensus, guidance, surprise), EarningsReactionProvider (reaction windows: pre-market for BMO, immediate AH, next session, 5-session, SPY benchmark), timestamp semantics (filing_accepted_at ≠ announcement_released_at), unit tests (74 passed: 43 earnings_parsers + 15 earnings_intelligence + 16 earnings_reaction), live integration tests (4 + 4 gated), all Phase 1-6 tests pass |
 | 8 | ✅ COMPLETE | NewsDocument/ManagementStatement/EvidenceClaim models, NewsProvider protocol, SECExhibitProvider (8-K exhibits via index.json), IRReleaseProvider (50+ company IR feeds), NewsRSSProvider (15+ financial news feeds), ManagementExtractor (deterministic zero-LLM), LLMProvider abstraction (Disabled/Local), EvidenceClaimGenerator + DeduplicationEngine. All offline tests pass (250), Phase 7/8 live tests pass (16), all Phase 1-7 tests pass. No paid dependencies. |
+| 9 | ✅ COMPLETE | InterpretationEngine (deterministic synthesis of earnings/macro/SEC/management/news evidence), AnswerEngine (deterministic Q&A for why moving/what happened/impact/scenarios/risks/catalysts), TermDefinitionService (70+ authoritative definitions with official references), EvidenceValidator, independent audits PASS. All offline tests pass (284), Phase 7/8/9 live tests pass (24), all Phase 1-8 tests pass. No paid dependencies. |
 
 ---
 
 ## Current Phase
 
-### Phase 8 — News + Management Statement Analysis
+### Phase 9 — Interpretation + Impact Engine / Answer Engine
 
-**Goal**: Build a structured evidence layer for NEWS + COMPANY PRESS RELEASES + MANAGEMENT STATEMENTS + MATERIAL COMPANY DEVELOPMENTS. Phase 8 is NOT the interpretation engine (that's Phase 9). Its output feeds Phase 9 as evidence claims with full provenance.
+**Goal**: Build the deterministic Interpretation + Impact Engine that converts existing structured evidence into:
+
+WHAT HAPPENED?
+→ WHAT DOES IT MEAN?
+→ WHY DOES IT MATTER?
+→ COMPANY IMPACT
+→ STOCK IMPACT
+→ TIME HORIZON
+→ BASE CASE
+→ BULL CASE
+→ BEAR CASE
+→ WHAT WOULD CHANGE THE VIEW?
+→ CONFIDENCE
+→ EVIDENCE
+→ HUMAN DECISION
+
+This is the core analytical layer of the Trading Copilot.
 
 **State**: ✅ COMPLETE — All nodes passing.
 
@@ -90,7 +107,30 @@ EVIDENCE CLAIMS
 SOURCE + TIMESTAMP + PROVENANCE
       ↓
 PHASE 9 INTERPRETATION + IMPACT
+      ↓
+ANSWER ENGINE
+      ↓
+HUMAN DECISION
 ```
+
+**Core Principles**:
+- Zero-LLM Core: All functionality works with `LLM_ENABLED=false`
+- Source Priority: 1. Primary company sources (SEC, IR) 2. Regulatory 3. Reputable news 4. Optional free structured
+- No Paid Dependencies: All providers use free official sources
+- Company ≠ Stock Impact: Stored separately with confidence and time_horizon
+- Scenario Analysis: Base/Bull/Bear cases + "What would change the view" required
+- Term UX: Desktop hover → popover, Mobile tap → popover, "Learn more" → authoritative link
+- Final Trading Decision: Remains human
+
+**Delivered (All Nodes Complete)**:
+1. **InterpretationEngine**: Deterministic synthesis of earnings/macro/SEC/management/news evidence into structured interpretations
+2. **AnswerEngine**: Deterministic Q&A for why moving/what happened/impact/scenarios/risks/catalysts/next event
+3. **TermDefinitionService**: 70+ authoritative definitions with official references (SEC, BLS, Fed, Investopedia)
+3. **EvidenceValidator**: Validates evidence spans, rejects unsupported claims
+4. **Independent Audits PASS**: Provenance ✅, Hallucination ✅, Deduplication ✅, Timestamps ✅, Zero-LLM ✅, LLM Failure Isolation ✅
+5. All offline tests pass (284), Phase 7/8/9 live tests pass (24), all Phase 1-8 tests pass
+6. No paid dependencies added
+
 
 **Core Principles**:
 - Zero-LLM Core: All functionality works with `LLM_ENABLED=false`
@@ -115,8 +155,8 @@ PHASE 9 INTERPRETATION + IMPACT
 
 | Phase | Focus |
 |-------|-------|
-| 8 | ✅ News + Management Analysis — All nodes complete |
-| 9 | **Interpretation + Impact Engine / Answer Engine** (What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon? Scenarios? Term definitions. Zero-LLM Core) |
+| 9 | ✅ Interpretation + Impact Engine / Answer Engine — All nodes complete |
+| 10 | Website (Interpretation output, Why It Matters + Market Impact, term hover/tap, scenario sections, company vs stock impact, progressive disclosure, mobile) |
 | 10 | Website (Interpretation output, Why It Matters + Market Impact, term hover/tap, scenario sections, company vs stock impact, progressive disclosure, mobile) |
 | 11 | Watchlists + Calendar + Alerts |
 | 12 | Historical Event Impact (validate relationships used in impact statements) |
@@ -215,30 +255,28 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 ## NEXT ACTION
 
-**Proceed to Phase 9 — Interpretation + Impact Engine / Answer Engine** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
+**Proceed to Phase 10 — Website / Dashboard** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
 
-Phase 8 COMPLETE with all nodes passing:
-- Node A: Source/provider research & selection ✅
-- Node B: News/document ingestion provider abstraction ✅
-- Node C: SEC exhibit/IR release ingestion (reuses Phase 6/7) ✅
-- Node D: News RSS ingestion ✅
-- Node E: Management statement extraction (deterministic) ✅
-- Node F: Optional local LLM extraction provider ✅
-- Node G: Evidence claim generation ✅
-- Node H: Deduplication engine ✅
-- Node I: Fixtures/tests ✅ (284 offline tests passing)
+Phase 9 COMPLETE with all nodes passing:
+- Node A: Interpretation contracts/schemas ✅
+- Node B: Event significance engine ✅
+- Node C: Company impact engine ✅
+- Node D: Stock impact engine ✅
+- Node E: Scenario engine ✅
+- Node F: Confidence + evidence engine ✅
+- Node G: Answer Engine ✅
+- Node H: Term definitions / educational metadata ✅
+- Node I: Offline fixtures and tests ✅ (284 offline tests passing)
 - Node J: Live integration tests ✅ (24 live tests passing)
 - Node K: Independent audits ✅ (provenance, hallucination, duplicates, timestamps, zero-LLM, LLM failure isolation)
-- Node L: Integration/docs/commit ✅
+- Node K: Integration/docs/commit ✅
 
 Key decisions implemented:
-- Zero-LLM Core: All Phase 8 functionality works with `LLM_ENABLED=false`
-- Source Priority: SEC/IR > regulatory > reputable news > optional free structured
-- No paid dependencies added
-- Deduplication: canonical URLs, content hashes, normalized headlines
-- Attribution: speaker, role, company, statement_type, source_document
-- Evidence Model: CLAIM + SOURCE + SOURCE_URL + EVENT_DATE + RETRIEVED_AT + EXACT_EVIDENCE + CONFIDENCE
-- No Phase 9 leakage: Phase 8 outputs evidence only, no impact/bias/scenario conclusions
+- Zero-LLM Core: All Phase 9 functionality works with `LLM_ENABLED=false`
+- Company ≠ Stock Impact: Stored separately with confidence and time_horizon
+- Scenario Analysis: Base/Bull/Bear cases + "What would change the view" required
+- Term Definitions: 70+ authoritative definitions with official references (SEC, BLS, Fed, Investopedia)
+- No Phase 10 leakage: Phase 9 outputs structured interpretations, UI is Phase 10
 
 ---
 
