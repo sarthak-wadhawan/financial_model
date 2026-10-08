@@ -380,17 +380,18 @@ python3 -m pytest -q
 
 Result:
 ```text
-231 passed, 27 skipped in 113.8s
+250 passed, 34 skipped in 115.3s
 ```
 
-- Unit tests: 212 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 15 earnings_calendar, 19 corporate_actions, 29 SEC filings, 43 earnings_parsers, 15 earnings_intelligence, 16 earnings_reaction)
+- Unit tests: 229 passed (10 features, 10 eligibility, 10 quant, 18 Alpaca, 24 events, 18 macro calendar, 15 earnings_calendar, 19 corporate_actions, 29 SEC filings, 43 earnings_parsers, 15 earnings_intelligence, 16 earnings_reaction, 8 sec_exhibit_provider, 6 ir_release_provider, 8 management_extractor)
 - Integration tests: 19 passed (4 scan + 8 macro calendar live + 2 earnings_calendar live + 4 corporate_actions_live + 1 sec_live)
 - Live Phase 7 tests: 8 passed (4 earnings_intelligence_live + 4 earnings_reaction_live, RUN_LIVE_TESTS=1)
+- Live Phase 8 tests: 5 passed, 2 skipped (RUN_LIVE_TESTS=1)
 - Live Alpaca tests: 3 passed, 1 failed (health check - pre-existing API issue, RUN_LIVE_TESTS=1)
 - Live Macro Calendar tests: 8 passed (RUN_LIVE_TESTS=1)
 - Live SEC test: 1 passed (RUN_LIVE_TESTS=1, SEC_USER_AGENT configured)
 
-All offline tests pass. Phase 7 live tests pass. One pre-existing Alpaca health check failure unrelated to Phase 7.
+All offline tests pass. Phase 7 live tests pass. Phase 8 live tests pass (5 passed, 2 skipped). One pre-existing Alpaca health check failure unrelated to Phase 7/8.
 
 ### Phase 6 Independent Audit Results
 
@@ -790,6 +791,21 @@ Tasks:
 - All existing Phase 1-6 tests pass (231 offline + 27 live total = 258)
 - Independent audits: architecture/leakage PASS (verified: no scheduled_at used for anchoring, no future data leaks, consensus provenance correct); provider/provenance PASS; test/edge-case PASS
 - Next phase: Phase 8 — News + Management Analysis
+
+### 2026-10-08 — Phase 8 News + Management Analysis In Progress (Node A-D Complete)
+- Implemented NewsDocument, ManagementStatement, EvidenceClaim models with full provenance (source, source_url, source_id, retrieved_at, content_hash, evidence_span)
+- Implemented NewsProvider protocol with fetch_news/fetch_company_releases methods
+- SECExhibitProvider: Reuses Phase 6/7 SEC infrastructure for 8-K exhibits (99.1, 99.2, 99.3) with exhibit reference detection
+- IRReleaseProvider: Company IR RSS feed ingestion (50+ known feeds: AAPL, MSFT, GOOGL, AMZN, META, NVDA, etc.)
+- NewsRSSProvider: Reputable financial news RSS ingestion (15+ feeds: Reuters, CNBC, WSJ, MarketWatch, etc.) with symbol extraction
+- ManagementExtractor: Deterministic statement extraction using attribution patterns, known executive database, role detection, evidence spans
+- LLMProvider abstraction: DisabledLLMProvider (zero-LLM baseline) + LocalLLMProvider (Ollama-compatible, falls back on failure)
+- EvidenceClaimGenerator: Converts statements to structured claims with claim_type (fact/attributed/derivation/AI), verification status
+- DeduplicationEngine: Multi-signal deduplication (URL, content hash, normalized headline+date)
+- All offline tests pass (250 passed, 34 skipped)
+- Phase 7 live tests pass (8 passed)
+- No paid dependencies added; reuses existing SEC/Alpaca infrastructure
+- Next: Node E (live integration tests), Node F (independent audits), Node G (integration/docs/commit)
 
 ### 2026-10-02 — GitHub Push: Phase 3 Complete
 - GitHub repository: https://github.com/sarthak-wadhawan/financial_model

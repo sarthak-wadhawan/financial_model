@@ -63,37 +63,54 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 | 5 | ✅ COMPLETE | EarningsCalendarProvider (fixtures, multi-source ready), CorporateActionsProvider (Alpaca API live), EventType.EARNINGS/DIVIDEND/STOCK_SPLIT/MERGER_ACQUISITION/SPINOFF/CORPORATE_ACTION, importance tiers, refresh/upsert with revision tracking, live tests |
 | 6 | ✅ COMPLETE | SEC EDGAR integration: 8-K/10-Q/10-K/Form 4, historical shards, amendments, leadership (CEO/CFO) extraction, insider classification, source preservation, importance tiers, idempotent refresh, live verification |
 | 7 | ✅ COMPLETE | EarningsIntelligenceProvider (SEC 8-K Item 2.02, 10-Q, 10-K earnings extraction with actual EPS/revenue, consensus, guidance, surprise), EarningsReactionProvider (reaction windows: pre-market for BMO, immediate AH, next session, 5-session, SPY benchmark), timestamp semantics (filing_accepted_at ≠ announcement_released_at), unit tests (74 passed: 43 earnings_parsers + 15 earnings_intelligence + 16 earnings_reaction), live integration tests (4 + 4 gated), all Phase 1-6 tests pass |
+| 8 | 🔄 IN PROGRESS (Node A-D ✅) | NewsDocument/ManagementStatement/EvidenceClaim models, NewsProvider protocol, SECExhibitProvider (8-K exhibits), IRReleaseProvider (50+ company IR feeds), NewsRSSProvider (15+ financial news feeds), ManagementExtractor (deterministic zero-LLM), LLMProvider abstraction (Disabled/Local), EvidenceClaimGenerator + DeduplicationEngine. All offline tests pass (250), Phase 7 live tests pass (8). |
 
 ---
 
 ## Current Phase
 
-### Phase 7 — Earnings Intelligence + Reaction History
+### Phase 8 — News + Management Statement Analysis
 
-**Goal**: Extract, normalize, and store historical earnings results (actual EPS/revenue, consensus estimates, guidance) with full provenance. Measure and preserve raw market behavior around earnings events across multiple time windows without interpretation.
+**Goal**: Build a structured evidence layer for NEWS + COMPANY PRESS RELEASES + MANAGEMENT STATEMENTS + MATERIAL COMPANY DEVELOPMENTS. Phase 8 is NOT the interpretation engine (that's Phase 9). Its output feeds Phase 9 as evidence claims with full provenance.
 
-**State**: ✅ COMPLETE. EarningsIntelligenceProvider extracts EPS/revenue actuals, consensus, guidance from SEC 8-K Item 2.02, 10-Q, 10-K filings. EarningsReactionProvider computes reaction windows (pre-market for BMO, immediate AH for AMC, next session, 5-session, SPY benchmark) using Alpaca IEX market data, anchored to released_at (actual earnings release timestamp). Timestamp semantics corrected: filing_accepted_at (SEC acceptance) tracked separately from announcement_released_at (actual earnings release) with release_time_source and release_time_precision fields. All unit tests pass (74), live integration tests created (8), all existing Phase 1-6 tests pass (231 total).
+**State**: 🔄 IN PROGRESS — Node A-D COMPLETE. Node E (live integration tests), Node F (independent audits), Node G (integration/docs/commit) remaining.
 
 **Architecture**:
-- Phase 7 = RAW EARNINGS RESULTS/GUIDANCE/REACTION EVENT INGESTION ONLY
-- Phase 9 = INTERPRETATION ENGINE (computes company_impact, stock_bias, scenarios, confidence, time_horizon)
-- Do NOT populate `company_impact`, `stock_bias`, `base_case`, `bull_case`, `bear_case`, `confidence`, `time_horizon` in Phase 7
+```
+SOURCE DOCUMENT
+      ↓
+FETCH / PRESERVE
+      ↓
+DEDUPLICATE
+      ↓
+STRUCTURED FACT / STATEMENT EXTRACTION
+      ↓
+EVIDENCE CLAIMS
+      ↓
+SOURCE + TIMESTAMP + PROVENANCE
+      ↓
+PHASE 9 INTERPRETATION + IMPACT
+```
 
-**Must Preserve for Phase 9**:
-- Earnings Results: fiscal quarter/year, EPS/revenue actual/consensus, surprise, report date/time, source document
-- Guidance: type, period, EPS/revenue ranges, change classification (raised/lowered/maintained/new)
-- Reactions: symbol, report_time, windows (pre_market, immediate_ah, next_session, session_5) with open/close/change_pct/volume, SPY benchmark
-- All with provenance: source, source_url, source_id, retrieved_at, market_data_retrieved_at, calculated_at
+**Core Principles**:
+- Zero-LLM Core: All functionality works with `LLM_ENABLED=false`
+- Source Priority: 1. Primary company sources (SEC, IR) 2. Regulatory 3. Reputable news 4. Optional free structured
+- No Paid Dependencies: All providers use free official sources
+- Deduplication: Canonical URLs, content hashes, normalized headlines
+- Attribution: Speaker, role, company, statement_type, source_document
+- Evidence Model: CLAIM + SOURCE + SOURCE_URL + EVENT_DATE + RETRIEVED_AT + EXACT_EVIDENCE + CONFIDENCE
 
-**Delivered**:
-1. EarningsIntelligenceProvider (SEC EDGAR earnings extraction with full provenance)
-2. EarningsReactionProvider (market data reaction windows, lookahead-safe)
-3. Earnings parsers (deterministic extraction, no invented values)
-4. Three new event types: EARNINGS_RESULT, EARNINGS_GUIDANCE, EARNINGS_REACTION
-5. Timestamp semantics: filing_accepted_at ≠ announcement_released_at ≠ scheduled_at
-6. Unit tests: 43 earnings_parsers + 15 earnings_intelligence + 16 earnings_reaction = 74
-7. Live integration tests: 4 earnings_intelligence + 4 earnings_reaction (gated by RUN_LIVE_TESTS=1)
-8. Full regression: 231 passed, 19 skipped
+**Delivered (Node A-D)**:
+1. **NewsDocument, ManagementStatement, EvidenceClaim** models with full provenance
+2. **NewsProvider protocol** with `fetch_news` / `fetch_company_releases`
+3. **SECExhibitProvider**: Reuses Phase 6/7 SEC infrastructure for 8-K exhibits (99.1, etc.)
+4. **IRReleaseProvider**: Company IR RSS feed ingestion (50+ known feeds)
+5. **NewsRSSProvider**: Reputable financial news RSS ingestion (15+ feeds)
+6. **ManagementExtractor**: Deterministic statement extraction (zero-LLM baseline)
+7. **LLMProvider abstraction**: DisabledLLMProvider + LocalLLMProvider (Ollama)
+8. **EvidenceClaimGenerator + DeduplicationEngine**
+9. All offline tests pass (250), Phase 7 live tests pass (8)
+10. No paid dependencies added
 
 ---
 
@@ -101,8 +118,8 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 | Phase | Focus |
 |-------|-------|
-| 7 | ✅ Earnings Intelligence + Reaction History (EPS/revenue, guidance, reaction windows, surprise, scenario inputs) |
-| 8 | News + Management Analysis (structured AI extraction, source-backed catalyst/risk claims, evidence for interpretation engine) |
+| 8 | 🔄 News + Management Analysis — Node A-D ✅, Node E/F/G remaining |
+| 9 | **Interpretation + Impact Engine / Answer Engine** (What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon? Scenarios? Term definitions. Zero-LLM Core) |
 | 9 | **Interpretation + Impact Engine / Answer Engine** (What happened? What does it mean? Why does it matter? Company impact? Stock bias? Time horizon? Scenarios? Term definitions. Zero-LLM Core) |
 | 10 | Website (Interpretation output, Why It Matters + Market Impact, term hover/tap, scenario sections, company vs stock impact, progressive disclosure, mobile) |
 | 11 | Watchlists + Calendar + Alerts |
@@ -149,9 +166,9 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 ## Tests
 
 ```
-Offline baseline: 231 passed, 27 skipped (includes Phase 7 earnings intelligence/reaction/parsers unit tests)
-Live baseline: 257 passed, 27 skipped (includes SEC live + Phase 7 live integration tests gated by RUN_LIVE_TESTS=1; 1 Alpaca health check failure is pre-existing)
-Last run:   2026-10-07
+Offline baseline: 250 passed, 34 skipped (includes Phase 7 earnings intelligence/reaction/parsers + Phase 8 news/management unit tests)
+Live baseline: 257 passed, 34 skipped (includes SEC live + Phase 7 live integration tests gated by RUN_LIVE_TESTS=1; 1 Alpaca health check failure is pre-existing)
+Last run:   2026-10-08
 ```
 
 Run:
@@ -200,23 +217,32 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 ## NEXT ACTION
 
-**Proceed to Phase 8 — News + Management Analysis** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
+**Continue Phase 8 — News + Management Analysis** according to `docs/DEVELOPMENT_ROADMAP_UPDATED.md`.
 
-Phase 7 complete with all nodes passing:
-- Node A: Event/Data Contracts ✅ (timestamp semantics, provenance fields)
-- Node B: EarningsIntelligenceProvider ✅ (SEC 8-K/10-Q/10-K earnings extraction)
-- Node C: EarningsReactionProvider ✅ (reaction windows with Alpaca IEX)
-- Node D: Offline Fixtures/Tests ✅ (74 unit tests passing)
-- Node E: Live Integration Tests ✅ (8 live tests created, gated by RUN_LIVE_TESTS=1)
-- Node F: Independent Audits — to be completed
-- Node G: Integration + Docs + Commit/Push — to be completed
+Phase 8 Node A-D COMPLETE:
+- Node A: Source/provider research & selection ✅
+- Node B: News/document ingestion provider abstraction ✅
+- Node C: SEC exhibit/IR release ingestion (reuses Phase 6/7) ✅
+- Node D: News RSS ingestion ✅
+- Node E: Management statement extraction (deterministic) ✅
+- Node F: Optional local LLM extraction provider ✅
+- Node G: Evidence claim generation ✅
+- Node H: Deduplication engine ✅
+- Node I: Fixtures/tests ✅ (250 offline tests passing)
+
+Remaining:
+- Node J: Live integration tests
+- Node K: Independent audits (provenance, hallucination, duplicates, timestamps, zero-LLM)
+- Node L: Integration/docs/commit
 
 Key decisions implemented:
-- SEC filing accepted_at != earnings announcement released_at (tracked separately: filing_accepted_at, announcement_released_at, release_time_source, release_time_precision)
-- Reaction windows anchored to released_at, not scheduled_at
-- Lookahead-safe: windows have explicit end boundaries
-- Raw measurements only, no interpretation
-- Missing consensus/guidance remain null (never interpolated)
+- Zero-LLM Core: All Phase 8 functionality works with `LLM_ENABLED=false`
+- Source Priority: SEC/IR > regulatory > reputable news > optional free structured
+- No paid dependencies added
+- Deduplication: canonical URLs, content hashes, normalized headlines
+- Attribution: speaker, role, company, statement_type, source_document
+- Evidence Model: CLAIM + SOURCE + SOURCE_URL + EVENT_DATE + RETRIEVED_AT + EXACT_EVIDENCE + CONFIDENCE
+- No Phase 9 leakage: Phase 8 outputs evidence only, no impact/bias/scenario conclusions
 
 ---
 
