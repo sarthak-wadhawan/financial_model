@@ -17,8 +17,10 @@ def extract_eps_revenue(text: str) -> dict[str, Any]:
     result = {
         "eps_actual": None,
         "eps_consensus": None,
+        "eps_consensus_provenance": None,  # "company_reported" | "independent_provider" | None
         "revenue_actual": None,
         "revenue_consensus": None,
+        "revenue_consensus_provenance": None,  # "company_reported" | "independent_provider" | None
         "guidance": None,
     }
 
@@ -139,6 +141,7 @@ def extract_eps_revenue(text: str) -> dict[str, Any]:
     eps_consensus = find_first(eps_consensus_patterns)
     if eps_consensus:
         result["eps_consensus"] = parse_number(eps_consensus)
+        result["eps_consensus_provenance"] = "company_reported"
 
     revenue_actual = find_first(revenue_actual_patterns)
     if revenue_actual:
@@ -147,6 +150,7 @@ def extract_eps_revenue(text: str) -> dict[str, Any]:
     revenue_consensus = find_first(revenue_consensus_patterns)
     if revenue_consensus:
         result["revenue_consensus"] = parse_number(revenue_consensus)
+        result["revenue_consensus_provenance"] = "company_reported"
 
     # Extract guidance text (preserve raw text for later processing)
     for pattern in guidance_patterns:
