@@ -56,16 +56,17 @@ class InterpretationEngine:
 
     def _get_evidence_refs(self, events: list[MarketEvent]) -> list:
         """Convert events to evidence references."""
+        from trading_copilot.models.interpretation import EvidenceRef
         refs = []
         for event in events:
             refs.append(
-                type('EvidenceRef', (), {
-                    'evidence_id': event.event_id,
-                    'source_type': event.source,
-                    'description': event.title,
-                    'url': event.source_url,
-                    'timestamp': event.released_at or event.scheduled_at,
-                })()
+                EvidenceRef(
+                    evidence_id=event.event_id,
+                    source_type=event.source,
+                    description=event.title,
+                    url=event.source_url,
+                    timestamp=event.released_at or event.scheduled_at,
+                )
             )
         return refs
 
@@ -237,6 +238,83 @@ class InterpretationEngine:
             except ValueError:
                 pass
 
+        # CPI impact
+        cpi_surprise = macro.get("cpi_surprise")
+        if cpi_surprise is not None:
+            try:
+                cpi_val = float(cpi_surprise)
+                if cpi_val > 0:
+                    reasons.append(f"CPI upside surprise ({cpi_val}% above consensus)")
+                    if direction != ImpactDirection.NEGATIVE:
+                        direction = ImpactDirection.NEGATIVE  # Higher CPI = rate hike risk
+                        magnitude = ImpactMagnitude.MEDIUM
+                    horizon = TimeHorizon.SHORT_TERM
+                elif cpi_val < 0:
+                    reasons.append(f"CPI downside surprise ({abs(cpi_val)}% below consensus)")
+                    if direction != ImpactDirection.POSITIVE:
+                        direction = ImpactDirection.POSITIVE  # Lower CPI = rate cut hope
+                        magnitude = ImpactMagnitude.MEDIUM
+                    horizon = TimeHorizon.SHORT_TERM
+            except ValueError:
+                pass
+
+        # NFP impact
+        nfp_surprise = macro.get("nfp_surprise")
+        if nfp_surprise is not None:
+            try:
+                nfp_val = float(nfp_surprise)
+                if nfp_val > 0:
+                    reasons.append(f"NFP upside surprise ({nfp_val} above consensus)")
+                    if direction != ImpactDirection.NEGATIVE:
+                        direction = ImpactDirection.POSITIVE  # Strong labor market
+                        magnitude = ImpactMagnitude.MEDIUM
+                    horizon = TimeHorizon.SHORT_TERM
+                elif nfp_val < 0:
+                    reasons.append(f"NFP downside surprise ({abs(nfp_val)} below consensus)")
+                    if direction != ImpactDirection.POSITIVE:
+                        direction = ImpactDirection.NEGATIVE
+                        magnitude = ImpactMagnitude.MEDIUM
+                    horizon = TimeHorizon.SHORT_TERM
+            except ValueError:
+                pass
+
+        # FOMC impact
+        fomc_action = macro.get("fomc_action")
+        if fomc_action:
+            reasons.append(f"FOMC action: {fomc_action}")
+            if "rate cut" in fomc_action.lower() or "cut" in fomc_action.lower():
+                if direction != ImpactDirection.NEGATIVE:
+                    direction = ImpactDirection.POSITIVE
+                    magnitude = ImpactMagnitude.MEDIUM
+            elif "rate hike" in fomc_action.lower() or "hike" in fomc_action.lower():
+                if direction != ImpactDirection.POSITIVE:
+                    direction = ImpactDirection.NEGATIVE
+                    magnitude = ImpactMagnitude.MEDIUM
+            elif "hold" in fomc_action.lower():
+                reasons.append("FOMC holds rates steady")
+
+        # Insider signals impact
+        insider_signals = sec.get("insider_signals", [])
+        for signal in insider_signals:
+            txn_type = signal.get("transaction_type", "").lower()
+            is_10b5 = signal.get("is_10b5_1", False)
+            role = signal.get("role", "").lower()
+            
+            if txn_type == "purchase" and not is_10b5:
+                reasons.append(f"Insider open-market purchase by {role}")
+                if direction != ImpactDirection.NEGATIVE:
+                    direction = ImpactDirection.POSITIVE
+                    magnitude = ImpactMagnitude.MEDIUM
+                    horizon = TimeHorizon.MEDIUM_TERM
+            elif txn_type == "sale" and not is_10b5:
+                reasons.append(f"Insider open-market sale by {role}")
+                if direction != ImpactDirection.POSITIVE:
+                    direction = ImpactDirection.NEGATIVE
+                    magnitude = ImpactMagnitude.MEDIUM
+                    horizon = TimeHorizon.MEDIUM_TERM
+            elif txn_type == "sale" and is_10b5:
+                reasons.append(f"Insider 10b5-1 sale by {role} (pre-planned)")
+
         # Set default confidence based on evidence richness
         evidence_count = sum([
             1 if earnings.get("has_earnings") else 0,
@@ -269,9 +347,10 @@ class InterpretationEngine:
         reaction = earnings.get("reaction", {})
 
         # Reaction-based stock impact (most direct signal)
+        # Reaction stores change_pct directly as float, not nested dict
         if reaction:
-            next_session_change = reaction.get("next_session", {}).get("change_pct")
-            session_5_change = reaction.get("session_5", {}).get("change_pct")
+            next_session_change = reaction.get("next_session")
+            session_5_change = reaction.get("session_5")
 
             if next_session_change is not None:
                 try:
@@ -381,6 +460,24 @@ class InterpretationEngine:
             except ValueError:
                 pass
 
+        # Insider signals influence on stock bias
+        insider_signals = all_evidence.get("sec", {}).get("insider_signals", [])
+        for signal in insider_signals:
+            txn_type = signal.get("transaction_type", "").lower()
+            is_10b5 = signal.get("is_10b5_1", False)
+            role = signal.get("role", "").lower()
+            
+            if txn_type == "purchase" and not is_10b5:
+                if bias != StockBias.BEARISH:
+                    bias = StockBias.BULLISH
+                reasons.append(f"Insider open-market purchase by {role}")
+            elif txn_type == "sale" and not is_10b5:
+                if bias != StockBias.BULLISH:
+                    bias = StockBias.BEARISH
+                reasons.append(f"Insider open-market sale by {role}")
+            elif txn_type == "sale" and is_10b5:
+                reasons.append(f"Insider 10b5-1 sale by {role} (pre-planned)")
+
         # Company vs stock divergence check
         if company_impact.direction == ImpactDirection.POSITIVE and bias == StockBias.BEARISH:
             reasons.append("Divergence: positive fundamentals but negative market reaction")
@@ -438,7 +535,8 @@ class InterpretationEngine:
         if all_evidence.get("earnings", {}).get("guidance_direction") == "raised":
             bull_reasons.append("Raised guidance provides upside support")
             bull_conditions.append("Guidance remains intact")
-        if all_evidence.get("macro", {}).get("rate_direction", 0) < 0:
+        macro_rate = all_evidence.get("macro", {}).get("rate_direction")
+        if macro_rate is not None and macro_rate < 0:
             bull_reasons.append("Rate cuts provide valuation support")
             bull_conditions.append("Fed continues easing cycle")
         bull_reasons.append("Positive earnings momentum continues")
@@ -448,7 +546,7 @@ class InterpretationEngine:
         if all_evidence.get("earnings", {}).get("guidance_direction") == "lowered":
             bear_reasons.append("Lowered guidance signals deterioration")
             bear_conditions.append("Guidance further reduced")
-        if all_evidence.get("macro", {}).get("rate_direction", 0) > 0:
+        if macro_rate is not None and macro_rate > 0:
             bear_reasons.append("Rate hikes compress valuations")
             bear_conditions.append("Fed continues tightening")
         if all_evidence.get("earnings", {}).get("eps_surprise"):
@@ -675,34 +773,43 @@ class InterpretationEngine:
         symbol = request.symbol.upper()
         as_of = request.as_of or datetime.now(timezone.utc)
 
-        # Fetch all relevant events
+        # Fetch all relevant events for the symbol
         events = self.event_store.events_for_symbol(
             symbol=symbol,
             event_types=None,
             limit=500,
         )
 
+        # Also fetch macro events (symbol=None)
+        macro_events = self.event_store.events_by_type(
+            event_type=EventType.MACRO,
+            limit=100,
+        )
+
+        # Combine all events
+        all_events = events + macro_events
+
         # Filter by as_of if provided
         if request.as_of:
-            events = [e for e in events if (e.released_at or e.scheduled_at) and
-                     (e.released_at or e.scheduled_at) <= request.as_of]
+            all_events = [e for e in all_events if (e.released_at or e.scheduled_at) and
+                         (e.released_at or e.scheduled_at) <= request.as_of]
 
         # Filter by focus events if provided
         if request.focus_events:
-            events = [e for e in events if e.event_id in request.focus_events]
+            all_events = [e for e in all_events if e.event_id in request.focus_events]
 
         # Categorize evidence
         all_evidence = {
-            "earnings": self._analyze_earnings_events(symbol, [e for e in events if e.event_type.value.startswith("earnings")]),
-            "macro": self._analyze_macro_events([e for e in events if e.event_type.value == "macro"]),
-            "sec": self._analyze_sec_events(symbol, [e for e in events if e.event_type.value in ["sec_filing", "leadership", "insider"]]),
+            "earnings": self._analyze_earnings_events(symbol, [e for e in all_events if e.event_type.value.startswith("earnings")]),
+            "macro": self._analyze_macro_events([e for e in all_events if e.event_type.value == "macro"]),
+            "sec": self._analyze_sec_events(symbol, [e for e in all_events if e.event_type.value in ["sec_filing", "leadership", "insider"]]),
             "management": self._analyze_management_statements(symbol),
             "news": self._analyze_news_claims(symbol),
             "quant": self._extract_quant_context(symbol, request.as_of),
         }
 
         # Add event objects to evidence for reference
-        all_evidence["events"] = events
+        all_evidence["events"] = all_events
 
         # Generate interpretation components
         company_impact = self._determine_company_impact(symbol, all_evidence)
