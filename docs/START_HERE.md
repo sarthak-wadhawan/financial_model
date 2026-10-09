@@ -204,9 +204,9 @@ HUMAN DECISION
 ## Tests
 
 ```
-Offline baseline: 284 passed, 34 skipped (includes Phase 7 earnings intelligence/reaction/parsers + Phase 8 news/management unit tests + audit tests)
-Live baseline: 24 passed, 34 skipped (includes SEC live + Phase 7/8 live integration tests gated by RUN_LIVE_TESTS=1; 1 Alpaca health check failure is pre-existing)
-Last run:   2026-10-08
+Offline baseline: 284 passed, 34 skipped (includes Phase 7 earnings intelligence/reaction/parsers + Phase 8 news/management unit tests + Phase 9 interpretation/answer/term unit tests + audit tests)
+Live baseline: 24 passed, 34 skipped (includes SEC live + Phase 7/8/9 live integration tests gated by RUN_LIVE_TESTS=1; 1 Alpaca health check failure is pre-existing)
+Last run:   2026-10-09
 ```
 
 Run:
