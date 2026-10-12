@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends
@@ -17,10 +18,10 @@ from trading_copilot.events.service import EventService
 from trading_copilot.intelligence.interpretation_engine import InterpretationEngine, InterpretationRequest
 from trading_copilot.answers.answer_engine import AnswerEngine, AnswerRequest
 from trading_copilot.terms.term_service import TermDefinitionService, get_term_service
+from trading_copilot.terms.term_service import TermDefinition
 from trading_copilot.models.interpretation import (
     Interpretation,
     Answer,
-    TermDefinition,
     InterpretationRequest,
     AnswerRequest,
 )
@@ -107,10 +108,10 @@ class SearchResult(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global config, event_store, event_service, interpretation_engine, answer_engine, term_service, settings
+    global config, event_store, event_store, event_service, interpretation_engine, answer_engine, term_service, settings
     
     # Load configuration
-    config = load_config()
+    config = load_config(Path(__file__).parent / "config.yaml")
     settings = load_settings()
     
     # Initialize event store
@@ -583,12 +584,14 @@ async def get_upcoming_events(
     days: int = Query(30, ge=1, le=90),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[dict]:
-    """Get upcoming scheduled events."""
+    """Get upcoming scheduled events within the next N days."""
     from datetime import timedelta
+    now = datetime.now(timezone.utc)
     cutoff = datetime.now(timezone.utc) + timedelta(days=days)
     
     events = event_store.upcoming_events(
-        days_ahead=days,
+        from_date=datetime.now(timezone.utc),
+        to_date=cutoff,
         limit=limit,
     )
     return [e.model_dump() for e in events]

@@ -18,10 +18,10 @@ export function Header() {
         </Link>
 
         <nav className="header-nav" aria-label="Main navigation">
-          <a href="/" className="nav-link">Dashboard</a>
-          <a href="/scanner" className="nav-link">Scanner</a>
-          <a href="/macro" className="nav-link">Macro Calendar</a>
-          <a href="/search" className="nav-link">Search</a>
+          <Link to="/" className="nav-link">Dashboard</Link>
+          <Link to="/scanner" className="nav-link">Scanner</Link>
+          <Link to="/macro" className="nav-link">Macro Calendar</Link>
+          <Link to="/search" className="nav-link">Search</Link>
         </nav>
 
         <div className="header-actions">
@@ -77,29 +77,4 @@ function ThemeToggle() {
       </button>
     </div>
   )
-}
-
-export function Header() {
-  return <header className="header" role="banner">
-    <div className="header-container">
-      <a href="/" className="header-logo" aria-label="Trading Copilot Home">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <rect width="32" height="32" rx="6" fill="currentColor" />
-          <path d="M8 12h16M8 16h12M8 20h8" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-        <span className="logo-text">Trading Copilot</span>
-      </a>
-
-      <nav className="header-nav" aria-label="Main navigation">
-        <a href="/" className="nav-link">Dashboard</a>
-        <a href="/scanner" className="nav-link">Scanner</a>
-        <a href="/macro" className="nav-link">Macro Calendar</a>
-        <a href="/search" className="nav-link">Search</a>
-      </nav>
-
-      <div className="header-actions">
-        <ThemeToggle />
-      </div>
-    </div>
-  </header>
 }

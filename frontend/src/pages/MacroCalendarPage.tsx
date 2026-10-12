@@ -1,10 +1,10 @@
-import React from 'react'
+import React, { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { api } from '../../services/api'
 import { LoadingSpinner, SkeletonCard, SkeletonText } from '../ui/LoadingSpinner'
-import { Badge, Tabs, Tab } from '../ui'
+import { Badge, Tabs } from '../ui'
 
 interface MacroEvent {
   event_id: string
@@ -19,15 +19,6 @@ interface MacroEvent {
   status: string
   source: string
   source_url: string | null
-}
-
-interface UpcomingEvent {
-  event_id: string
-  title: string
-  event_type: string
-  scheduled_at: string
-  importance: string
-  source: string
 }
 
 export function MacroCalendarPage() {
@@ -45,12 +36,27 @@ export function MacroCalendarPage() {
 
   const [filterImportance, setFilterImportance] = useState<string>('all')
   const [filterType, setFilterType] = useState<string>('all')
+  const [activeTab, setActiveTab] = useState<string>('upcoming')
 
-  const filteredEvents = events?.filter(e => {
-    if (filterImportance !== 'all' && e.importance !== filterImportance) return false
-    if (filterType !== 'all' && e.event_type !== filterType) return false
-    return true
-  }) || []
+  const filteredEvents = useMemo(() => {
+    return events?.filter(e => {
+      if (filterImportance !== 'all' && e.importance !== filterImportance) return false
+      if (filterType !== 'all' && e.event_type !== filterType) return false
+      return true
+    }) || []
+  }, [events, filterImportance, filterType])
+
+  const getFilteredEvents = useMemo(() => {
+    const base = filteredEvents
+    switch (activeTab) {
+      case 'upcoming':
+        return base.filter(e => e.status === 'SCHEDULED' || e.status === 'UPDATED')
+      case 'recent':
+        return base.filter(e => e.status === 'RELEASED')
+      default:
+        return base
+    }
+  }, [filteredEvents, activeTab])
 
   const importanceLevels = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
   const eventTypes = ['FOMC', 'CPI', 'NFP', 'PCE', 'GDP', 'PPI', 'UNEMPLOYMENT', 'RETAIL_SALES', 'HOUSING_STARTS', 'BUILDING_PERMITS', 'JOLTS', 'FOMC_MINUTES']
@@ -133,12 +139,13 @@ export function MacroCalendarPage() {
                 <tr key={event.event_id}>
                   <td>
                     <span className="event-date">
-                      {event.scheduled_at ? format(new Date(event.scheduled_at), 'MMM d, yyyy') : '—'}
+                      {event.scheduled_at ? format(new Date(event.scheduled_at), 'MMM d, yyyy') : '-'}
                       {event.scheduled_at && event.released_at && (
                         <span className="release-time">
                           {format(new Date(event.released_at), 'HH:mm')}
                         </span>
                       )}
+                    </span>
                   </td>
                   <td>
                     <Link to={`/search?q=${encodeURIComponent(event.title)}`} className="event-title-link">
@@ -151,10 +158,10 @@ export function MacroCalendarPage() {
                     </Badge>
                   </td>
                   <td className={event.actual ? (event.forecast ? (parseFloat(event.actual) > parseFloat(event.forecast) ? 'positive' : 'negative') : '') : ''}>
-                    {event.actual || '—'}
+                    {event.actual || '-'}
                   </td>
-                  <td>{event.forecast || '—'}</td>
-                  <td>{event.previous || '—'}</td>
+                  <td>{event.forecast || '-'}</td>
+                  <td>{event.previous || '-'}</td>
                   <td>
                     <Badge variant={getImportanceBadgeVariant(event.importance)}>
                       {event.importance}

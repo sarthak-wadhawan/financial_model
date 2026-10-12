@@ -60,7 +60,7 @@ export function SkeletonText({ lines = 3, className = '' }: { lines?: number; cl
     <div className={`skeleton-text ${className}`} aria-hidden="true">
       {Array.from({ length: lines }, (_, i) => (
         <div key={i} className="skeleton-line" />
-      )}
+      ))}
     </div>
   )
 }
@@ -82,11 +82,12 @@ export function SkeletonTable({ rows = 5, columns = 4, className = '' }: { rows?
       <div className="skeleton-table-header">
         {Array.from({ length: 1 }, (_, i) => (
           <div key={i} className="skeleton-table-row">
-            {Array.from({ length: 4 }, (_, j) => (
+            {Array.from({ length: columns }, (_, j) => (
               <div key={j} className="skeleton skeleton-rectangular" style={{ width: '100%', height: '20px' }} />
             ))}
           </div>
         ))}
+      </div>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="skeleton-table-row">
           {Array.from({ length: columns }, (_, j) => (

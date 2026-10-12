@@ -19,10 +19,9 @@ import {
   SkeletonCard,
   SkeletonText,
 } from '../ui/LoadingSpinner'
-import { Badge, Tabs, Tab, Badge as BadgeComponent } from '../ui'
+import { Badge, Tabs } from '../ui'
 import { Tooltip } from '../ui'
 import { TermDefinition, getTermDefinition } from '../../terms/term_service'
-import { format, formatDistanceToNow } from 'date-fns'
 
 interface StockPageProps {
   symbol: string
@@ -42,66 +41,54 @@ export function StockPage() {
     staleTime: 1000 * 60 * 5,
   })
 
-  const { data: earnings } = useQuery({
+  const { data: earnings, isLoading: earningsLoading } = useQuery({
     queryKey: ['earnings', symbol],
     queryFn: () => api.getEarnings(symbol!),
     enabled: !!symbol,
     staleTime: 1000 * 60 * 5,
   })
 
-  const { data: events } = useQuery({
+  const { data: events, isLoading: eventsLoading } = useQuery({
     queryKey: ['events', symbol],
     queryFn: () => api.getEvents(symbol!, undefined, 50),
     enabled: !!symbol,
     staleTime: 1000 * 60 * 5,
   })
 
-  const { data: news } = useQuery({
+  const { data: news, isLoading: newsLoading } = useQuery({
     queryKey: ['news', symbol],
     queryFn: () => api.getNews(symbol!, 20),
     enabled: !!symbol,
     staleTime: 1000 * 60 * 5,
   })
 
-  const { data: insiders } = useQuery({
-    queryKey: ['insiders', symbol],
-    queryFn: () => api.getInsiders(symbol!, 20),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 5,
-  })
-
-  const { data: leadership } = useQuery({
-    queryKey: ['leadership', symbol],
-    queryFn: () => api.getLeadership(symbol!),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 60,
-  })
-
-  const { data: filings } = useQuery({
-    queryKey: ['filings', symbol],
-    queryFn: () => api.getFilings(symbol!, 20),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 60,
-  })
-
-  const { data: insiders } = useQuery({
+  const { data: insiders, isLoading: insidersLoading } = useQuery({
     queryKey: ['insiders', symbol],
     queryFn: () => api.getInsiders(symbol!, 50),
     enabled: !!symbol,
     staleTime: 1000 * 60 * 60,
   })
 
-  const { data: quant } = useQuery({
+  const { data: leadership, isLoading: leadershipLoading } = useQuery({
+    queryKey: ['leadership', symbol],
+    queryFn: () => api.getLeadership(symbol!),
+    enabled: !!symbol,
+    staleTime: 1000 * 60 * 60,
+  })
+
+  const { data: filings, isLoading: filingsLoading } = useQuery({
+    queryKey: ['filings', symbol],
+    queryFn: () => api.getFilings(symbol!, 20),
+    enabled: !!symbol,
+    staleTime: 1000 * 60 * 60,
+  })
+
+  const { data: quant, isLoading: quantLoading } = useQuery({
     queryKey: ['quant', symbol],
     queryFn: () => api.getQuantSignals(symbol!),
     enabled: !!symbol,
     staleTime: 1000 * 60 * 5,
   })
-
-  const [activeTab, setActiveTab] = useState('overview')
-  const [selectedTerm, setSelectedTerm] = useState<string | null>(null)
-  const [termDefinition, setTermDefinition] = useState<any>(null)
-  const [showTermDef, setShowTermDef] = useState(false)
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -125,23 +112,25 @@ export function StockPage() {
             <span className="stock-exchange">NASDAQ</span>
           </div>
           <div className="stock-price">
-            <span className="current-price">$—</span>
-            <span className="price-change neutral">—</span>
+            <span className="current-price">$-</span>
+            <span className="price-change neutral">-</span>
           </div>
         </div>
         <div className="stock-nav">
           <nav className="stock-tabs" role="tablist" aria-label="Stock sections">
-            {['overview', 'earnings', 'events', 'news', 'insiders', 'leadership', 'filings', 'quant'].map(tab => (
-              <button
-                key={tab}
-                role="tab"
-                aria-selected={activeTab === tab}
-                onClick={() => setActiveTab(tab)}
-                className={`tab ${activeTab === tab ? 'active' : ''}`}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
-            )}
+            {['overview', 'earnings', 'events', 'news', 'insiders', 'leadership', 'filings', 'quant'].map((tab) => {
+              return (
+                <button
+                  key={tab}
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`tab ${activeTab === tab ? 'active' : ''}`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              )
+            })}
           </nav>
         </div>
       </div>
@@ -165,7 +154,7 @@ function OverviewTab({ interpretation, loading }: { interpretation: any; loading
 
   if (!interpretation) return <div className="empty-state">No interpretation available</div>
 
-  const { interpretation: interp, company_impact, stock_impact, base_case, bull_case, bear_case, what_would_change_view, confidence } = interpretation
+  const interp = interpretation
 
   return (
     <div className="tab-content overview-tab">
@@ -174,19 +163,19 @@ function OverviewTab({ interpretation, loading }: { interpretation: any; loading
         <div className="key-points">
           <div className="key-point">
             <span className="kp-label">Headline</span>
-            <span className="kp-value">{interpretation?.headline || '—'}</span>
+            <span className="kp-value">{interpretation?.headline || '-'}</span>
           </div>
           <div className="key-point">
             <span className="kp-label">What Happened</span>
-            <span className="kp-value">{interpretation?.what_happened || '—'}</span>
+            <span className="kp-value">{interpretation?.what_happened || '-'}</span>
           </div>
           <div className="key-point">
             <span className="kp-label">What It Means</span>
-            <span className="kp-value">{interpretation?.what_it_means || '—'}</span>
+            <span className="kp-value">{interpretation?.what_it_means || '-'}</span>
           </div>
           <div className="key-point">
             <span className="kp-label">Why It Matters</span>
-            <span className="kp-value">{interpretation?.why_it_matters || '—'}</span>
+            <span className="kp-value">{interpretation?.why_it_matters || '-'}</span>
           </div>
         </div>
       </section>
@@ -209,7 +198,7 @@ function OverviewTab({ interpretation, loading }: { interpretation: any; loading
                   <li key={i}>{reason}</li>
                 ))}
               </ul>
-            }
+            )}
           </div>
 
           <div className="impact-card stock-impact">
@@ -228,7 +217,7 @@ function OverviewTab({ interpretation, loading }: { interpretation: any; loading
                   <li key={i}>{reason}</li>
                 ))}
               </ul>
-            }
+            )}
           </div>
         </div>
       </section>
@@ -301,55 +290,57 @@ function EarningsTab({ earnings, loading }: { earnings: any[]; loading: boolean 
   return (
     <div className="tab-content earnings-tab">
       <div className="earnings-history">
-        {earnings.map((e: any) => (
-          <div key={e.event_id || e.id} className="earnings-card">
-            <div className="earnings-header">
-              <span className="earnings-period">{e.metadata?.fiscal_quarter} {e.metadata?.fiscal_year}</span>
-              <span className="earnings-date">{format(new Date(e.released_at), 'MMM d, yyyy')}</span>
+        {earnings.map((e: any) => {
+  return (
+    <div key={e.event_id || e.id} className="earnings-card">
+      <div className="earnings-header">
+        <span className="earnings-period">{e.metadata?.fiscal_quarter} {e.metadata?.fiscal_year}</span>
+        <span className="earnings-date">{format(new Date(e.released_at), 'MMM d, yyyy')}</span>
+      </div>
+      <div className="earnings-metrics">
+        <div className="metric">
+          <span className="metric-label">EPS Actual</span>
+          <span className="metric-value">{e.metadata?.eps_actual || '-'}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">EPS Consensus</span>
+          <span className="metric-value">{e.metadata?.eps_consensus || '-'}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">EPS Surprise</span>
+          <span className={`metric-value ${e.metadata?.eps_surprise && parseFloat(e.metadata.eps_surprise) > 0 ? 'positive' : e.metadata?.eps_surprise && parseFloat(e.metadata.eps_surprise) < 0 ? 'negative' : ''}`}>
+            {e.metadata?.eps_surprise ? (parseFloat(e.metadata.eps_surprise) > 0 ? '+' : '') + e.metadata.eps_surprise : '-'}
+          </span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Revenue</span>
+          <span className="metric-value">{e.metadata?.revenue_actual ? formatNumber(e.metadata.revenue_actual) : '-'}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Rev Consensus</span>
+          <span className="metric-value">{e.metadata?.revenue_consensus ? formatNumber(e.metadata.revenue_consensus) : '-'}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Rev Surprise</span>
+          <span className={`metric-value ${e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) > 0 ? 'positive' : e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) < 0 ? 'negative' : ''}`}>
+            {e.metadata?.revenue_surprise ? (parseFloat(e.metadata.revenue_surprise) > 0 ? '+' : '') + formatNumber(e.metadata.revenue_surprise) : '-'}
+          </span>
+        </div>
+      </div>
+      {e.metadata?.guidance_change && (
+        <div className="guidance-change">
+          <span className="guidance-badge">{e.metadata.guidance_change}</span>
+          {e.metadata?.guidance_details && (
+            <div className="guidance-details">
+              <span>EPS: {e.metadata.guidance_details?.eps_guidance_low} - {e.metadata.guidance_details?.eps_guidance_high}</span>
+              <span>Rev: {e.metadata.guidance_details?.revenue_guidance_low} - {e.metadata.guidance_details?.revenue_guidance_high}</span>
             </div>
-            <div className="earnings-metrics">
-              <div className="metric">
-                <span className="metric-label">EPS Actual</span>
-                <span className="metric-value">{e.metadata?.eps_actual || '—'}</span>
-              </div>
-              <div className="metric">
-                <span className="metric-label">EPS Consensus</span>
-                <span className="metric-value">{e.metadata?.eps_consensus || '—'}</span>
-              </div>
-              <div className="metric">
-                <span className="metric-label">EPS Surprise</span>
-                <span className={`metric-value ${e.metadata?.eps_surprise && parseFloat(e.metadata.eps_surprise) > 0 ? 'positive' : e.metadata?.eps_surprise && parseFloat(e.metadata.eps_surprise) < 0 ? 'negative' : ''}`}>
-                  {e.metadata?.eps_surprise ? (parseFloat(e.metadata.eps_surprise) > 0 ? '+' : '') + e.metadata.eps_surprise : '—'}
-                </span>
-              </div>
-              <div className="metric">
-                <span className="metric-label">Revenue</span>
-                <span className="metric-value">{e.metadata?.revenue_actual ? formatNumber(e.metadata.revenue_actual) : '—'}</span>
-              </div>
-              <div className="metric">
-                <span className="metric-label">Rev Consensus</span>
-                <span className="metric-value">{e.metadata?.revenue_consensus ? formatNumber(e.metadata.revenue_consensus) : '—'}</span>
-              </div>
-              <div className="metric">
-                <span className="metric-label">Rev Surprise</span>
-                <span className={`metric-value ${e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) > 0 ? 'positive' : e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) < 0 ? 'negative' : ''}`}>
-                  {e.metadata?.revenue_surprise ? (parseFloat(e.metadata.revenue_surprise) > 0 ? '+' : '') + formatNumber(e.metadata.revenue_surprise) : '—'}
-                </span>
-              </div>
-            </div>
-            {e.metadata?.guidance_change && (
-              <div className="guidance-change">
-                <span className="guidance-badge">{e.metadata.guidance_change}</span>
-                {e.metadata?.guidance_details && (
-                  <div className="guidance-details">
-                    <span>EPS: {e.metadata.guidance_details?.eps_guidance_low} - {e.metadata.guidance_details?.eps_guidance_high}</span>
-                    <span>Rev: {e.metadata.guidance_details?.revenue_guidance_low} - {e.metadata.guidance_details?.revenue_guidance_high}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
+      )}
+    </div>
+  )
+})}
       </div>
     </div>
   )
@@ -362,22 +353,24 @@ function EventsTab({ events, loading }: { events: any[]; loading: boolean }) {
   return (
     <div className="tab-content events-tab">
       <div className="events-list">
-        {events.map((e: any) => (
-          <div key={e.event_id} className="event-item">
-            <div className="event-header">
-              <span className="event-type-badge">{e.event_type}</span>
-              <span className="event-time">{e.released_at ? format(new Date(e.released_at), 'MMM d, yyyy HH:mm') : 'Pending'}</span>
-            </div>
-            <Link to={`/stocks/${e.symbol}`} className="event-title-link">
-              <h4>{e.title}</h4>
-            </Link>
-            <p className="event-description">{e.description?.substring(0, 300)}...</p>
-            <div className="event-meta">
-              <span className="event-source">{e.source}</span>
-              <span className="event-importance">{e.importance}</span>
-            </div>
-          </div>
-        )}
+        {events.map((e: any) => {
+  return (
+    <div key={e.event_id} className="event-item">
+      <div className="event-header">
+        <span className="event-type-badge">{e.event_type}</span>
+        <span className="event-time">{e.released_at ? format(new Date(e.released_at), 'MMM d, yyyy HH:mm') : 'Pending'}</span>
+      </div>
+      <Link to={`/stocks/${e.symbol}`} className="event-title-link">
+        <h4>{e.title}</h4>
+      </Link>
+      <p className="event-description">{e.description?.substring(0, 300)}...</p>
+      <div className="event-meta">
+        <span className="event-source">{e.source}</span>
+        <span className="event-importance">{e.importance}</span>
+      </div>
+    </div>
+  )
+})}
       </div>
     </div>
   )
@@ -390,21 +383,23 @@ function NewsTab({ news, loading }: { news: any[]; loading: boolean }) {
   return (
     <div className="tab-content news-tab">
       <div className="news-list">
-        {news.map((n: any) => (
-          <article key={n.document_id} className="news-item">
-            <Link to={n.source_url} target="_blank" rel="noopener noreferrer" className="news-link">
-              <div className="news-header">
-                <h4>{n.headline}</h4>
-                <span className="news-publisher">{n.publisher}</span>
-              </div>
-              <p className="news-summary">{n.summary?.substring(0, 200)}...</p>
-              <div className="news-meta">
-                <span className="news-source">{n.source_type}</span>
-                <time>{n.published_at ? format(new Date(n.published_at), 'MMM d, yyyy HH:mm') : ''}</time>
-              </div>
-            </Link>
-          </article>
-        ))}
+        {news.map((n: any) => {
+  return (
+    <article key={n.document_id} className="news-item">
+      <Link to={n.source_url} target="_blank" rel="noopener noreferrer" className="news-link">
+        <div className="news-header">
+          <h4>{n.headline}</h4>
+          <span className="news-publisher">{n.publisher}</span>
+        </div>
+        <p className="news-summary">{n.summary?.substring(0, 200)}...</p>
+        <div className="news-meta">
+          <span className="news-source">{n.source_type}</span>
+          <time>{n.published_at ? format(new Date(n.published_at), 'MMM d, yyyy HH:mm') : ''}</time>
+        </div>
+      </Link>
+    </article>
+  )
+})}
       </div>
     </div>
   )
@@ -431,19 +426,21 @@ function InsidersTab({ insiders, loading }: { insiders: any[]; loading: boolean 
           </tr>
         </thead>
         <tbody>
-          {insiders.map((i: any) => (
-            <tr key={i.transaction_id || i.id}>
-              <td>{format(new Date(i.transaction_date), 'MMM d, yyyy')}</td>
-              <td>{i.name}</td>
-              <td>{i.role}</td>
-              <td><Badge variant={i.transaction_type === 'purchase' ? 'success' : i.transaction_type === 'sale' ? 'error' : 'default'}>{i.transaction_type}</Badge></td>
-              <td>{i.shares?.toLocaleString()}</td>
-              <td>{i.price ? `$${i.price}` : '—'}</td>
-              <td>{i.transaction_value ? formatNumber(i.transaction_value) : '—'}</td>
-              <td>{i.is_10b5_1 ? <Badge variant="warning">10b5-1</Badge> : 'No'}</td>
-              <td>{i.holdings_after?.toLocaleString() || '—'}</td>
-            </tr>
-          ))}
+          {insiders.map((i: any) => {
+            return (
+              <tr key={i.transaction_id || i.id}>
+                <td>{format(new Date(i.transaction_date), 'MMM d, yyyy')}</td>
+                <td>{i.name}</td>
+                <td>{i.role}</td>
+                <td><Badge variant={i.transaction_type === 'purchase' ? 'success' : i.transaction_type === 'sale' ? 'error' : 'default'}>{i.transaction_type}</Badge></td>
+                <td>{i.shares?.toLocaleString()}</td>
+                <td>{i.price ? `$${i.price}` : '-'}</td>
+                <td>{i.transaction_value ? formatNumber(i.transaction_value) : '-'}</td>
+                <td>{i.is_10b5_1 ? <Badge variant="warning">10b5-1</Badge> : 'No'}</td>
+                <td>{i.holdings_after?.toLocaleString() || '-'}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -505,14 +502,16 @@ function FilingsTab({ filings, loading }: { filings: any[]; loading: boolean }) 
           </tr>
         </thead>
         <tbody>
-          {filings.map((f: any) => (
-            <tr key={f.event_id || f.id}>
-              <td>{f.released_at ? format(new Date(f.released_at), 'MMM d, yyyy') : '—'}</td>
-              <td><Badge variant="default">{f.metadata?.form || f.event_type}</Badge></td>
-              <td>{f.title}</td>
-              <td><a href={f.source_url} target="_blank" rel="noopener noreferrer" className="link">View</a></td>
-            </tr>
-          )}
+          {filings.map((f: any) => {
+            return (
+              <tr key={f.event_id || f.id}>
+                <td>{f.released_at ? format(new Date(f.released_at), 'MMM d, yyyy') : '-'}</td>
+                <td><Badge variant="default">{f.metadata?.form || f.event_type}</Badge></td>
+                <td>{f.title}</td>
+                <td><a href={f.source_url} target="_blank" rel="noopener noreferrer" className="link">View</a></td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -528,14 +527,16 @@ function QuantTab({ quant, loading }: { quant: any; loading: boolean }) {
       <div className="quant-signals">
         <h3>Quant Signals</h3>
         <div className="signals-grid">
-          {Object.entries(quant.signals || {}).map(([key, value]: [string, any]) => (
-            <div key={key} className="signal-card">
-              <span className="signal-name">{key}</span>
-              <span className={`signal-value ${value > 0 ? 'positive' : value < 0 ? 'negative' : ''}`}>
-                {typeof value === 'number' ? value.toFixed(2) : value}
-              </span>
-            </div>
-          ))}
+          {Object.entries(quant.signals || {}).map(([key, value]: [string, any]) => {
+  return (
+    <div key={key} className="signal-card">
+      <span className="signal-name">{key}</span>
+      <span className={`signal-value ${value > 0 ? 'positive' : value < 0 ? 'negative' : ''}`}>
+        {typeof value === 'number' ? value.toFixed(2) : value}
+      </span>
+    </div>
+  )
+})}
         </div>
       </div>
     </div>

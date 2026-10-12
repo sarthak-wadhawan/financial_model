@@ -411,25 +411,44 @@ class EventStore:
             return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def upcoming_events(
-        self, limit: int = 100, offset: int = 0, from_date: Optional[datetime] = None
+        self, limit: int = 100, offset: int = 0, 
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None
     ) -> list[MarketEvent]:
-        """Get upcoming scheduled events."""
+        """Get upcoming scheduled events within a date range."""
         if from_date is None:
             from_date = datetime.now(timezone.utc)
         with self._conn() as conn:
-            cursor = conn.execute(
-                """
-                SELECT * FROM events
-                WHERE scheduled_at >= ? AND status IN ('scheduled', 'updated')
-                ORDER BY scheduled_at ASC
-                LIMIT ? OFFSET ?
-                """,
-                (
-                    from_date.isoformat().replace("+00:00", "Z"),
-                    limit,
-                    offset,
-                ),
-            )
+            if to_date is not None:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM events
+                    WHERE scheduled_at >= ? AND scheduled_at <= ? 
+                    AND status IN ('scheduled', 'updated')
+                    ORDER BY scheduled_at ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (
+                        from_date.isoformat().replace("+00:00", "Z"),
+                        to_date.isoformat().replace("+00:00", "Z"),
+                        limit,
+                        offset,
+                    ),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM events
+                    WHERE scheduled_at >= ? AND status IN ('scheduled', 'updated')
+                    ORDER BY scheduled_at ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (
+                        from_date.isoformat().replace("+00:00", "Z"),
+                        limit,
+                        offset,
+                    ),
+                )
             return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def recent_events(

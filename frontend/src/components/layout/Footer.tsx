@@ -59,6 +59,6 @@ export function Footer() {
         <p>Trading Copilot - Deterministic Financial Intelligence. Not financial advice.</p>
         <p>Data provided by SEC EDGAR, BLS, Federal Reserve, BEA, Census, Alpaca Markets.</p>
       </div>
-    </div>
+    </footer>
   )
 }

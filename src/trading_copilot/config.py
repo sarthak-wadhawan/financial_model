@@ -116,6 +116,10 @@ class RuntimeConfig(BaseModel):
     provider_max_concurrency: int = 5
 
 
+class EventsConfig(BaseModel):
+    db_path: str = "data/events.db"
+
+
 class Config(BaseModel):
     app: AppConfig = Field(default_factory=AppConfig)
     universe: UniverseConfig = Field(default_factory=UniverseConfig)
@@ -128,6 +132,7 @@ class Config(BaseModel):
     risk: RiskConfig = Field(default_factory=RiskConfig)
     options: OptionsConfig = Field(default_factory=OptionsConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    events: EventsConfig = Field(default_factory=EventsConfig)
 
 
 class Settings(BaseSettings):

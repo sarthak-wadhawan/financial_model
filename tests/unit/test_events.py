@@ -228,6 +228,132 @@ class TestEventStore:
         assert len(upcoming) == 1
         assert upcoming[0].title == "Future Event"
 
+    def test_upcoming_events_bounded_window(self, store):
+        """Test upcoming events with bounded window (from_date, to_date)."""
+        now = datetime.now(timezone.utc)
+
+        # Past event (yesterday)
+        past_event = MarketEvent(
+            event_type=EventType.MACRO,
+            symbol=None,
+            title="Past Event",
+            scheduled_at=now - timedelta(days=1),
+            source="test",
+        )
+        store.upsert_event(past_event)
+
+        # Tomorrow event (1 day out)
+        tomorrow_event = MarketEvent(
+            event_type=EventType.MACRO,
+            symbol=None,
+            title="Tomorrow Event",
+            scheduled_at=now + timedelta(days=1),
+            source="test",
+        )
+        store.upsert_event(tomorrow_event)
+
+        # 20 days out event
+        twenty_days_event = MarketEvent(
+            event_type=EventType.MACRO,
+            symbol=None,
+            title="20 Days Out Event",
+            scheduled_at=now + timedelta(days=20),
+            source="test",
+        )
+        store.upsert_event(twenty_days_event)
+
+        # 30 days out event (boundary)
+        thirty_days_event = MarketEvent(
+            event_type=EventType.MACRO,
+            symbol=None,
+            title="30 Days Out Event",
+            scheduled_at=now + timedelta(days=30),
+            source="test",
+        )
+        store.upsert_event(thirty_days_event)
+
+        # 35 days out event (beyond 30-day window)
+        thirty_five_days_event = MarketEvent(
+            event_type=EventType.MACRO,
+            symbol=None,
+            title="35 Days Out Event",
+            scheduled_at=now + timedelta(days=35),
+            source="test",
+        )
+        store.upsert_event(thirty_five_days_event)
+
+        # Test days=1 (should include tomorrow only)
+        upcoming_1 = store.upcoming_events(from_date=now, to_date=now + timedelta(days=1), limit=10)
+        assert len(upcoming_1) == 1
+        assert upcoming_1[0].title == "Tomorrow Event"
+
+        # Test days=30 (should include tomorrow, 20 days, and 30 days)
+        upcoming_30 = store.upcoming_events(from_date=now, to_date=now + timedelta(days=30), limit=10)
+        assert len(upcoming_30) == 3
+        titles_30 = {e.title for e in upcoming_30}
+        assert "Tomorrow Event" in titles_30
+        assert "20 Days Out Event" in titles_30
+        assert "30 Days Out Event" in titles_30
+        assert "35 Days Out Event" not in titles_30
+        assert "Past Event" not in titles_30
+
+        # Test days=35 (should include 35 days event too)
+        upcoming_35 = store.upcoming_events(from_date=now, to_date=now + timedelta(days=35), limit=10)
+        assert len(upcoming_35) == 4
+        titles_35 = {e.title for e in upcoming_35}
+        assert "35 Days Out Event" in titles_35
+
+        # Test past events are excluded even with wide window
+        upcoming_all = store.upcoming_events(from_date=now - timedelta(days=10), to_date=now + timedelta(days=40), limit=10)
+        # Should NOT include past event because from_date is now (default) or now - 10 days but scheduled_at >= from_date
+        # Actually with from_date = now - 10 days, past event (yesterday) would be included
+        # Let's test with default from_date (now)
+        upcoming_default = store.upcoming_events(limit=10)
+        assert len(upcoming_default) == 4  # tomorrow, 20d, 30d, 35d
+        titles_default = {e.title for e in upcoming_default}
+        assert "Past Event" not in titles_default
+
+    def test_upcoming_events_timezone_handling(self, store):
+        """Test upcoming events with timezone-aware datetimes."""
+        # Use a fixed reference time
+        reference = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc)
+
+        # Event scheduled in different timezone but stored as UTC
+        event_utc = MarketEvent(
+            event_type=EventType.MACRO,
+            symbol=None,
+            title="UTC Event",
+            scheduled_at=reference + timedelta(days=1),
+            source="test",
+            timezone="UTC",
+        )
+        store.upsert_event(event_utc)
+
+        event_ny = MarketEvent(
+            event_type=EventType.MACRO,
+            symbol=None,
+            title="NY Event",
+            scheduled_at=reference + timedelta(days=2),
+            source="test",
+            timezone="America/New_York",
+        )
+        store.upsert_event(event_ny)
+
+        # Query with UTC from_date
+        from_date = reference
+        to_date = reference + timedelta(days=3)
+        upcoming = store.upcoming_events(from_date=from_date, to_date=to_date, limit=10)
+        
+        assert len(upcoming) == 2
+        titles = {e.title for e in upcoming}
+        assert "UTC Event" in titles
+        assert "NY Event" in titles
+        
+        # Verify timezone is preserved
+        for event in upcoming:
+            assert event.scheduled_at is not None
+            assert event.scheduled_at.tzinfo is not None
+
     def test_recent_events(self, store):
         """Test querying recent events."""
         now = datetime.now(timezone.utc)
