@@ -1,25 +1,10 @@
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
-import { api } from '../../services/api'
-import { LoadingSpinner, SkeletonCard, SkeletonText } from '../ui/LoadingSpinner'
-import { Badge, Tabs } from '../ui'
-
-interface MacroEvent {
-  event_id: string
-  title: string
-  event_type: string
-  scheduled_at: string | null
-  released_at: string | null
-  actual: string | null
-  forecast: string | null
-  previous: string | null
-  importance: string
-  status: string
-  source: string
-  source_url: string | null
-}
+import { LoadingSpinner } from '../components/ui/LoadingSpinner'
+import { Badge, Tabs } from '../components/ui'
+import type { MacroEventResponse } from '../services/api'
 
 export function MacroCalendarPage() {
   const { data: events, isLoading } = useQuery({
@@ -28,18 +13,12 @@ export function MacroCalendarPage() {
     staleTime: 1000 * 60 * 5,
   })
 
-  const { data: upcoming } = useQuery({
-    queryKey: ['upcomingEvents', 30],
-    queryFn: () => fetch('/api/v1/events/upcoming?days=30&limit=50').then(r => r.json()),
-    staleTime: 1000 * 60 * 5,
-  })
-
   const [filterImportance, setFilterImportance] = useState<string>('all')
   const [filterType, setFilterType] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<string>('upcoming')
 
   const filteredEvents = useMemo(() => {
-    return events?.filter(e => {
+    return events?.filter((e: MacroEventResponse) => {
       if (filterImportance !== 'all' && e.importance !== filterImportance) return false
       if (filterType !== 'all' && e.event_type !== filterType) return false
       return true
@@ -50,15 +29,14 @@ export function MacroCalendarPage() {
     const base = filteredEvents
     switch (activeTab) {
       case 'upcoming':
-        return base.filter(e => e.status === 'SCHEDULED' || e.status === 'UPDATED')
+        return base.filter((e: MacroEventResponse) => e.status === 'SCHEDULED' || e.status === 'UPDATED')
       case 'recent':
-        return base.filter(e => e.status === 'RELEASED')
+        return base.filter((e: MacroEventResponse) => e.status === 'RELEASED')
       default:
         return base
     }
   }, [filteredEvents, activeTab])
 
-  const importanceLevels = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
   const eventTypes = ['FOMC', 'CPI', 'NFP', 'PCE', 'GDP', 'PPI', 'UNEMPLOYMENT', 'RETAIL_SALES', 'HOUSING_STARTS', 'BUILDING_PERMITS', 'JOLTS', 'FOMC_MINUTES']
 
   if (isLoading) return <div className="page-loading"><LoadingSpinner size="lg" /></div>
@@ -75,7 +53,7 @@ export function MacroCalendarPage() {
           <label htmlFor="importance-filter">Importance</label>
           <select
             value={filterImportance}
-            onChange={e => setFilterImportance(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilterImportance(e.target.value)}
             className="filter-select"
           >
             <option value="all">All Importance</option>
@@ -89,7 +67,7 @@ export function MacroCalendarPage() {
           <label htmlFor="type-filter">Event Type</label>
           <select
             value={filterType}
-            onChange={e => setFilterType(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilterType(e.target.value)}
             className="filter-select"
           >
             <option value="all">All Types</option>
@@ -258,7 +236,6 @@ function getTypeBadgeVariant(type: string) {
     'RETAIL_SALES': 'warning',
     'HOUSING_STARTS': 'secondary',
     'BUILDING_PERMITS': 'secondary',
-    'JOLTS': 'secondary',
     'AVG_HOURLY_EARNINGS': 'warning',
     'CONSUMER_CONFIDENCE': 'secondary',
     'ISM_MANUFACTURING': 'secondary',

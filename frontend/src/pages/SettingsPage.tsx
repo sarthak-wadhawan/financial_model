@@ -1,13 +1,8 @@
-import React, { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../../services/api'
-import { LoadingSpinner } from '../ui/LoadingSpinner'
-import { Tabs, Tab } from '../ui'
+import { useState } from 'react'
+import { Tabs } from '../components/ui'
 
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState('general')
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system')
-  const [apiKeys, setApiKeys] = useState({})
 
   const tabs = [
     { id: 'general', label: 'General' },
@@ -31,7 +26,7 @@ export function SettingsPage() {
               tabs={tabs.map(t => ({ id: t.id, label: t.label }))}
               activeTab={activeTab}
               onChange={setActiveTab}
-              variant="vertical"
+              variant="enclosed"
             />
           </nav>
         </aside>
@@ -164,16 +159,16 @@ function GeneralSettings() {
 }
 
 function ApiSettings() {
-  const [apiKeys, setApiKeys] = useState({
+  const [apiKeys, setApiKeys] = useState<Record<string, Record<string, string>>>({
     alpaca: { key: '', secret: '' },
-    alphaVantage: '',
-    polygon: '',
-    twelveData: '',
-    finnhub: '',
+    alphaVantage: { key: '' },
+    polygon: { key: '' },
+    twelveData: { key: '' },
+    finnhub: { key: '' },
   })
   const [testing, setTesting] = useState<string | null>(null)
 
-  const handleKeyChange = (provider: string, field: 'key' | 'secret', value: string) => {
+  const handleKeyChange = (provider: string, field: string, value: string) => {
     setApiKeys(prev => ({
       ...prev,
       [provider]: { ...prev[provider], [field]: value },
@@ -181,8 +176,11 @@ function ApiSettings() {
   }
 
   const testConnection = async (provider: string) => {
+    setTesting(provider)
     // TODO: Implement API connection test
+    await new Promise(resolve => setTimeout(resolve, 1000))
     alert(`Testing ${provider} connection...`)
+    setTesting(null)
   }
 
   const providers = [
@@ -248,7 +246,7 @@ function ApiSettings() {
                       id={`${provider.id}-${field}`}
                       name={`${provider.id}-${field}`}
                       value={apiKeys[provider.id]?.[field] || ''}
-                      onChange={e => handleKeyChange(provider.id, field as 'key' | 'secret', e.target.value)}
+                      onChange={e => handleKeyChange(provider.id, field, e.target.value)}
                       placeholder={`Enter ${provider.name} ${field}`}
                     />
                   </div>
@@ -293,8 +291,21 @@ function ApiSettings() {
   )
 }
 
+interface NotificationPrefs {
+  emailAlerts: boolean
+  priceAlerts: boolean
+  earningsAlerts: boolean
+  newsAlerts: boolean
+  macroAlerts: boolean
+  insiderAlerts: boolean
+  digestFrequency: string
+  quietHours: { enabled: boolean; start: string; end: string }
+}
+
+type AlertPrefKey = 'emailAlerts' | 'priceAlerts' | 'earningsAlerts' | 'newsAlerts' | 'macroAlerts' | 'insiderAlerts'
+
 function NotificationSettings() {
-  const [prefs, setPrefs] = useState({
+  const [prefs, setPrefs] = useState<NotificationPrefs>({
     emailAlerts: true,
     priceAlerts: true,
     earningsAlerts: true,
@@ -307,31 +318,41 @@ function NotificationSettings() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
+    if (name.startsWith('quietHours.')) {
+      const field = name.split('.')[1] as 'enabled' | 'start' | 'end'
+      setPrefs(prev => ({
+        ...prev,
+        quietHours: { ...prev.quietHours, [field]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value },
+      }))
+      return
+    }
     setPrefs(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
     }))
   }
 
+  const alertItems: Array<{ id: AlertPrefKey; label: string }> = [
+    { id: 'emailAlerts', label: 'Email notifications' },
+    { id: 'priceAlerts', label: 'Price alerts' },
+    { id: 'earningsAlerts', label: 'Earnings alerts' },
+    { id: 'newsAlerts', label: 'Breaking news' },
+    { id: 'macroAlerts', label: 'Macro events' },
+    { id: 'insiderAlerts', label: 'Insider transactions' },
+  ]
+
   return (
     <div className="settings-section">
       <section className="settings-group">
         <h3>Alert Types</h3>
         <div className="settings-list">
-          {[
-            { id: 'emailAlerts', label: 'Email notifications' },
-            { id: 'priceAlerts', label: 'Price alerts' },
-            { id: 'earningsAlerts', label: 'Earnings alerts' },
-            { id: 'newsAlerts', label: 'Breaking news' },
-            { id: 'macroAlerts', label: 'Macro events' },
-            { id: 'insiderAlerts', label: 'Insider transactions' },
-          ].map(item => (
+          {alertItems.map(item => (
             <label key={item.id} className="setting-toggle">
               <input
                 type="checkbox"
                 name={item.id}
-                checked={prefs[item.id as keyof typeof prefs]}
-                onChange={e => setPrefs(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                checked={prefs[item.id]}
+                onChange={handleChange}
               />
               <span>{item.label}</span>
             </label>
@@ -367,7 +388,7 @@ function NotificationSettings() {
               type="checkbox"
               name="quietHours.enabled"
               checked={prefs.quietHours.enabled}
-              onChange={e => setPrefs(prev => ({ ...prev, quietHours: { ...prev.quietHours, enabled: e.target.checked } }))}
+              onChange={handleChange}
             />
             <span>Enable quiet hours</span>
           </label>
@@ -378,7 +399,7 @@ function NotificationSettings() {
               id="quietStart"
               name="quietHours.start"
               value={prefs.quietHours.start}
-              onChange={e => setPrefs(prev => ({ ...prev, quietHours: { ...prev.quietHours, start: e.target.value } }))}
+              onChange={handleChange}
               disabled={!prefs.quietHours.enabled}
             />
           </div>
@@ -389,7 +410,7 @@ function NotificationSettings() {
               id="quietEnd"
               name="quietHours.end"
               value={prefs.quietHours.end}
-              onChange={e => setPrefs(prev => ({ ...prev, quietHours: { ...prev.quietHours, end: e.target.value } }))}
+              onChange={handleChange}
               disabled={!prefs.quietHours.enabled}
             />
           </div>
@@ -649,7 +670,7 @@ function DataSettings() {
             id="cacheStrategy"
             name="cacheStrategy"
             value={prefs.cacheStrategy}
-            onChange={e => setPrefs(prev => ({ ...prev, cacheStrategy: e.target.value }))}
+            onChange={e => setPrefs(prev => ({ ...prev, cacheStrategy: e.target.value as 'aggressive' | 'smart' | 'minimal' }))}
           >
             <option value="aggressive">Aggressive (cache everything)</option>
             <option value="smart" selected>Smart (cache frequently accessed)</option>

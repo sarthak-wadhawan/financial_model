@@ -1,51 +1,8 @@
-import React from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../../services/api'
-import { LoadingSpinner, SkeletonCard, SkeletonText } from '../ui/LoadingSpinner'
 import { format } from 'date-fns'
 
-interface MarketOverviewResponse {
-  timestamp: string
-  symbols_tracked: number
-  quant_scanner_status: string
-  market_data_status: string
-}
-
-interface MacroEvent {
-  event_id: string
-  title: string
-  event_type: string
-  scheduled_at: string | null
-  released_at: string | null
-  actual: string | null
-  forecast: string | null
-  previous: string | null
-  importance: string
-  status: string
-  source: string
-  source_url: string | null
-}
-
-interface QuantCandidate {
-  symbol: string
-  quant_score: number
-  momentum_score: number
-  trend_score: number
-  liquidity_score: number
-  volume_score: number
-  volatility_quality_score: number
-  price: number
-  as_of: string
-}
-
 export function LandingPage() {
-  const { data: marketOverview } = useQuery({
-    queryKey: ['marketOverview'],
-    queryFn: () => api.getMarketOverview(),
-    staleTime: 1000 * 60 * 5,
-  })
-
   const { data: macroEvents } = useQuery({
     queryKey: ['macroEvents', 'upcoming'],
     queryFn: () => fetch('/api/v1/events/upcoming?days=30&limit=10').then(r => r.json()),

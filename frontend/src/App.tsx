@@ -1,5 +1,5 @@
-import React, { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy } from 'react'
+import { Routes, Route } from 'react-router-dom'
 import { Header } from './components/layout/Header'
 import { Sidebar } from './components/layout/Sidebar'
 import { Footer } from './components/layout/Footer'
@@ -20,7 +20,7 @@ function App() {
   const { resolvedTheme } = useTheme()
 
   return (
-    <div className={`app ${useTheme().resolvedTheme}`}>
+    <div className={`app ${resolvedTheme}`}>
       <Suspense fallback={<LoadingSpinner size="lg" />}>
         <div className="app-layout">
           <header className="app-header">

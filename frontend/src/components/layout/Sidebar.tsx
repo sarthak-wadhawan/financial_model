@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 const navigation = [
@@ -6,12 +6,6 @@ const navigation = [
   { label: 'Scanner', href: '/scanner', icon: 'scanner' },
   { label: 'Macro Calendar', href: '/macro', icon: 'calendar' },
   { label: 'Search', href: '/search', icon: 'search' },
-  { label: 'Scanner', href: '/scanner', icon: 'scanner' },
-  { label: 'Settings', href: '/settings', icon: 'settings' },
-]
-
-const adminNavigation = [
-  { label: 'Scanner', href: '/scanner', icon: 'scanner' },
   { label: 'Settings', href: '/settings', icon: 'settings' },
 ]
 
@@ -31,7 +25,6 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
           onClick={onToggle}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-expanded={!collapsed}
-          aria-label="Toggle sidebar"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             {collapsed ? (
@@ -49,8 +42,8 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
             <li key={item.href}>
               <Link
                 to={item.href}
-                className={`nav-item ${window.location.pathname === item.href ? 'active' : ''}`}
-                aria-current={window.location.pathname === item.href ? 'page' : undefined}
+                className={`nav-item ${location.pathname === item.href ? 'active' : ''}`}
+                aria-current={location.pathname === item.href ? 'page' : undefined}
               >
                 <span className="nav-icon" aria-hidden="true">
                   {getIcon(item.icon)}
@@ -59,7 +52,6 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
               </Link>
             </li>
           ))}
-
         </ul>
       </nav>
 
@@ -111,13 +103,6 @@ function getIcon(name: string) {
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
-    ),
-    scanner: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2m-2 2H5a2 2 0 0 1-2-2v-2m0 0L7 7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M12 7v10" strokeWidth="2" strokeLinecap="round" />
-        <path d="M15 7v10" strokeWidth="2" strokeLinecap="round" />
       </svg>
     ),
     settings: (

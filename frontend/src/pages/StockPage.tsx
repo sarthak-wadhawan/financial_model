@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { format, formatDistanceToNow } from 'date-fns'
-import { api } from '../../services/api'
-import {
+import { format } from 'date-fns'
+import { api } from '../services/api'
+import type {
   Interpretation,
-  Answer,
   EarningsEvent,
   CompanyEvent,
   NewsEvent,
@@ -13,28 +12,18 @@ import {
   LeadershipData,
   Filing,
   QuantSignals,
-} from '../../types'
+} from '../services/api'
 import {
-  LoadingSpinner,
   SkeletonCard,
   SkeletonText,
-} from '../ui/LoadingSpinner'
-import { Badge, Tabs } from '../ui'
-import { Tooltip } from '../ui'
-import { TermDefinition, getTermDefinition } from '../../terms/term_service'
-
-interface StockPageProps {
-  symbol: string
-}
+} from '../components/ui/LoadingSpinner'
+import { Badge } from '../components/ui'
 
 export function StockPage() {
   const { symbol } = useParams<{ symbol: string }>()
   const [activeTab, setActiveTab] = useState('overview')
-  const [selectedTerm, setSelectedTerm] = useState<string | null>(null)
-  const [termDefinition, setTermDefinition] = useState<any>(null)
-  const [showTermDef, setShowTermDef] = useState(false)
 
-  const { data: interpretation, isLoading: interpLoading, error: interpError } = useQuery({
+  const { data: interpretation, isLoading: interpLoading } = useQuery({
     queryKey: ['interpretation', symbol],
     queryFn: () => api.getInterpretation(symbol!),
     enabled: !!symbol,
@@ -90,17 +79,6 @@ export function StockPage() {
     staleTime: 1000 * 60 * 5,
   })
 
-  const tabs = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'earnings', label: 'Earnings' },
-    { id: 'events', label: 'Events' },
-    { id: 'news', label: 'News' },
-    { id: 'insiders', label: 'Insiders' },
-    { id: 'leadership', label: 'Leadership' },
-    { id: 'filings', label: 'Filings' },
-    { id: 'quant', label: 'Quant' },
-  ]
-
   if (!symbol) return <div>No symbol specified</div>
 
   return (
@@ -149,12 +127,10 @@ export function StockPage() {
   )
 }
 
-function OverviewTab({ interpretation, loading }: { interpretation: any; loading: boolean }) {
+function OverviewTab({ interpretation, loading }: { interpretation: Interpretation | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><div className="skeleton-card" /><div className="skeleton-card" /></div>
 
   if (!interpretation) return <div className="empty-state">No interpretation available</div>
-
-  const interp = interpretation
 
   return (
     <div className="tab-content overview-tab">
@@ -234,7 +210,7 @@ function OverviewTab({ interpretation, loading }: { interpretation: any; loading
       <section className="section view-change-section">
         <h2>What Would Change the View?</h2>
         <div className="triggers-list">
-          {interpretation?.what_would_change_view?.map((trigger: any, i: number) => (
+          {interpretation?.what_would_change_view?.map((trigger: { trigger: string; description: string }, i: number) => (
             <div key={i} className="trigger-item">
               <strong>{trigger.trigger}</strong>
               <p>{trigger.description}</p>
@@ -268,7 +244,7 @@ function OverviewTab({ interpretation, loading }: { interpretation: any; loading
       <section className="section evidence-section">
         <h2>Supporting Evidence</h2>
         <div className="evidence-list">
-          {interpretation?.supporting_evidence?.map((ev: any, i: number) => (
+          {interpretation?.supporting_evidence?.map((ev: { source_type: string; url: string; description: string; timestamp: string }, i: number) => (
             <div key={i} className="evidence-item">
               <span className="evidence-source">{ev.source_type}</span>
               <a href={ev.url} target="_blank" rel="noopener noreferrer" className="evidence-link">
@@ -283,16 +259,15 @@ function OverviewTab({ interpretation, loading }: { interpretation: any; loading
   )
 }
 
-function EarningsTab({ earnings, loading }: { earnings: any[]; loading: boolean }) {
+function EarningsTab({ earnings, loading }: { earnings: EarningsEvent[] | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
   if (!earnings?.length) return <div className="empty-state">No earnings data available</div>
 
   return (
     <div className="tab-content earnings-tab">
       <div className="earnings-history">
-        {earnings.map((e: any) => {
-  return (
-    <div key={e.event_id || e.id} className="earnings-card">
+        {earnings.map((e: EarningsEvent) => (
+    <div key={e.event_id} className="earnings-card">
       <div className="earnings-header">
         <span className="earnings-period">{e.metadata?.fiscal_quarter} {e.metadata?.fiscal_year}</span>
         <span className="earnings-date">{format(new Date(e.released_at), 'MMM d, yyyy')}</span>
@@ -323,7 +298,7 @@ function EarningsTab({ earnings, loading }: { earnings: any[]; loading: boolean 
         <div className="metric">
           <span className="metric-label">Rev Surprise</span>
           <span className={`metric-value ${e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) > 0 ? 'positive' : e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) < 0 ? 'negative' : ''}`}>
-            {e.metadata?.revenue_surprise ? (parseFloat(e.metadata.revenue_surprise) > 0 ? '+' : '') + formatNumber(e.metadata.revenue_surprise) : '-'}
+            {e.metadata?.revenue_surprise ? (parseFloat(e.metadata.revenue_surprise) > 0 ? '+' : '') + formatNumber(parseFloat(e.metadata.revenue_surprise)) : '-'}
           </span>
         </div>
       </div>
@@ -339,22 +314,20 @@ function EarningsTab({ earnings, loading }: { earnings: any[]; loading: boolean 
         </div>
       )}
     </div>
-  )
-})}
-      </div>
+  ))}
     </div>
-  )
+  </div>
+)
 }
 
-function EventsTab({ events, loading }: { events: any[]; loading: boolean }) {
+function EventsTab({ events, loading }: { events: CompanyEvent[] | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><div className="skeleton-card" /><div className="skeleton-card" /></div>
   if (!events?.length) return <div className="empty-state">No events found</div>
 
   return (
     <div className="tab-content events-tab">
       <div className="events-list">
-        {events.map((e: any) => {
-  return (
+        {events.map((e: CompanyEvent) => (
     <div key={e.event_id} className="event-item">
       <div className="event-header">
         <span className="event-type-badge">{e.event_type}</span>
@@ -369,22 +342,20 @@ function EventsTab({ events, loading }: { events: any[]; loading: boolean }) {
         <span className="event-importance">{e.importance}</span>
       </div>
     </div>
-  )
-})}
+))}
       </div>
     </div>
   )
 }
 
-function NewsTab({ news, loading }: { news: any[]; loading: boolean }) {
+function NewsTab({ news, loading }: { news: NewsEvent[] | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
   if (!news?.length) return <div className="empty-state">No news available</div>
 
   return (
     <div className="tab-content news-tab">
       <div className="news-list">
-        {news.map((n: any) => {
-  return (
+        {news.map((n: NewsEvent) => (
     <article key={n.document_id} className="news-item">
       <Link to={n.source_url} target="_blank" rel="noopener noreferrer" className="news-link">
         <div className="news-header">
@@ -398,14 +369,13 @@ function NewsTab({ news, loading }: { news: any[]; loading: boolean }) {
         </div>
       </Link>
     </article>
-  )
-})}
+))}
       </div>
     </div>
   )
 }
 
-function InsidersTab({ insiders, loading }: { insiders: any[]; loading: boolean }) {
+function InsidersTab({ insiders, loading }: { insiders: InsiderTransaction[] | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
   if (!insiders?.length) return <div className="empty-state">No insider transactions found</div>
 
@@ -426,9 +396,9 @@ function InsidersTab({ insiders, loading }: { insiders: any[]; loading: boolean 
           </tr>
         </thead>
         <tbody>
-          {insiders.map((i: any) => {
+          {insiders.map((i: InsiderTransaction) => {
             return (
-              <tr key={i.transaction_id || i.id}>
+              <tr key={i.transaction_id}>
                 <td>{format(new Date(i.transaction_date), 'MMM d, yyyy')}</td>
                 <td>{i.name}</td>
                 <td>{i.role}</td>
@@ -447,7 +417,7 @@ function InsidersTab({ insiders, loading }: { insiders: any[]; loading: boolean 
   )
 }
 
-function LeadershipTab({ leadership, loading }: { leadership: any; loading: boolean }) {
+function LeadershipTab({ leadership, loading }: { leadership: LeadershipData | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><SkeletonText lines={3} /></div>
   if (!leadership || !leadership.ceo && !leadership.cfo) return <div className="empty-state">No leadership data available</div>
 
@@ -472,7 +442,7 @@ function LeadershipTab({ leadership, loading }: { leadership: any; loading: bool
             </div>
           </div>
         )}
-        {Object.entries(leadership).filter(([k]) => !['ceo', 'cfo'].includes(k)).map(([role, name]) => (
+        {Object.entries(leadership).filter(([k, v]) => !['ceo', 'cfo'].includes(k) && v).map(([role, name]) => (
           <div key={role} className="leader-card">
             <div className="leader-avatar">{role.toUpperCase()}</div>
             <div className="leader-info">
@@ -486,7 +456,7 @@ function LeadershipTab({ leadership, loading }: { leadership: any; loading: bool
   )
 }
 
-function FilingsTab({ filings, loading }: { filings: any[]; loading: boolean }) {
+function FilingsTab({ filings, loading }: { filings: Filing[] | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
   if (!filings?.length) return <div className="empty-state">No filings found</div>
 
@@ -502,13 +472,13 @@ function FilingsTab({ filings, loading }: { filings: any[]; loading: boolean }) 
           </tr>
         </thead>
         <tbody>
-          {filings.map((f: any) => {
+          {filings.map((f: Filing) => {
             return (
-              <tr key={f.event_id || f.id}>
+              <tr key={f.event_id}>
                 <td>{f.released_at ? format(new Date(f.released_at), 'MMM d, yyyy') : '-'}</td>
                 <td><Badge variant="default">{f.metadata?.form || f.event_type}</Badge></td>
                 <td>{f.title}</td>
-                <td><a href={f.source_url} target="_blank" rel="noopener noreferrer" className="link">View</a></td>
+                <td><a href={f.source_url || '#'} target="_blank" rel="noopener noreferrer" className="link">View</a></td>
               </tr>
             )
           })}
@@ -518,7 +488,7 @@ function FilingsTab({ filings, loading }: { filings: any[]; loading: boolean }) 
   )
 }
 
-function QuantTab({ quant, loading }: { quant: any; loading: boolean }) {
+function QuantTab({ quant, loading }: { quant: QuantSignals | undefined; loading: boolean }) {
   if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
   if (!quant) return <div className="empty-state">No quant data available</div>
 
@@ -527,23 +497,21 @@ function QuantTab({ quant, loading }: { quant: any; loading: boolean }) {
       <div className="quant-signals">
         <h3>Quant Signals</h3>
         <div className="signals-grid">
-          {Object.entries(quant.signals || {}).map(([key, value]: [string, any]) => {
-  return (
+          {Object.entries(quant.signals || {}).map(([key, value]: [string, number]) => (
     <div key={key} className="signal-card">
       <span className="signal-name">{key}</span>
       <span className={`signal-value ${value > 0 ? 'positive' : value < 0 ? 'negative' : ''}`}>
         {typeof value === 'number' ? value.toFixed(2) : value}
       </span>
     </div>
-  )
-})}
+))}
         </div>
       </div>
     </div>
   )
 }
 
-function ScenarioCard({ scenario, variant }: { scenario: any; variant: 'base' | 'bull' | 'bear' }) {
+function ScenarioCard({ scenario, variant }: { scenario: Interpretation['base_case']; variant: 'base' | 'bull' | 'bear' }) {
   const variants = {
     base: { class: 'scenario-base', label: 'BASE CASE' },
     bull: { class: 'scenario-bull', label: 'BULL CASE' },

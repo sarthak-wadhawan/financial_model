@@ -149,9 +149,10 @@ class ApiClient {
 export const api = new ApiClient()
 
 // Type definitions for API responses
-interface MarketOverviewResponse {
+export interface MarketOverviewResponse {
   market_status: string
   snapshot_time: string
+  symbols_tracked: number
   indices: Array<{
     symbol: string
     price: number
@@ -175,7 +176,7 @@ interface MarketOverviewResponse {
   }>
 }
 
-interface BarData {
+export interface BarData {
   symbol: string
   bars: Array<{
     t: string
@@ -187,14 +188,14 @@ interface BarData {
   }>
 }
 
-interface SymbolSearchResult {
+export interface SymbolSearchResult {
   symbol: string
   name: string
   exchange: string
   type: string
 }
 
-interface StockDetail {
+export interface StockDetail {
   symbol: string
   name: string
   exchange: string
@@ -207,7 +208,7 @@ interface StockDetail {
   dividend_yield: number | null
 }
 
-interface Interpretation {
+export interface Interpretation {
   interpretation_id: string
   symbol: string
   as_of: string
@@ -259,7 +260,7 @@ interface Interpretation {
   }>
 }
 
-interface Answer {
+export interface Answer {
   answer_id: string
   symbol: string
   question: string
@@ -268,7 +269,7 @@ interface Answer {
   evidence_refs: string[]
 }
 
-interface EarningsEvent {
+export interface EarningsEvent {
   event_id: string
   symbol: string
   title: string
@@ -292,7 +293,7 @@ interface EarningsEvent {
   }
 }
 
-interface CompanyEvent {
+export interface CompanyEvent {
   event_id: string
   symbol: string
   event_type: string
@@ -305,7 +306,7 @@ interface CompanyEvent {
   source_url: string | null
 }
 
-interface NewsEvent {
+export interface NewsEvent {
   document_id: string
   headline: string
   summary: string | null
@@ -315,7 +316,7 @@ interface NewsEvent {
   source_type: string
 }
 
-interface InsiderTransaction {
+export interface InsiderTransaction {
   transaction_id: string
   name: string
   role: string
@@ -328,13 +329,13 @@ interface InsiderTransaction {
   transaction_date: string
 }
 
-interface LeadershipData {
+export interface LeadershipData {
   ceo: string | null
   cfo: string | null
   [key: string]: string | null
 }
 
-interface Filing {
+export interface Filing {
   event_id: string
   title: string
   released_at: string | null
@@ -345,11 +346,11 @@ interface Filing {
   source_url: string | null
 }
 
-interface QuantSignals {
+export interface QuantSignals {
   signals: Record<string, number>
 }
 
-interface QuantCandidate {
+export interface QuantCandidate {
   symbol: string
   rank: number
   quant_score: number
@@ -362,7 +363,7 @@ interface QuantCandidate {
   avg_dollar_volume_20d: number
 }
 
-interface MacroEventResponse {
+export interface MacroEventResponse {
   event_id: string
   title: string
   event_type: string
@@ -377,7 +378,7 @@ interface MacroEventResponse {
   source_url: string | null
 }
 
-interface UpcomingEventResponse {
+export interface UpcomingEventResponse {
   event_id: string
   title: string
   event_type: string
@@ -386,7 +387,7 @@ interface UpcomingEventResponse {
   source: string
 }
 
-interface Event {
+export interface Event {
   event_id: string
   title: string
   event_type: string
@@ -397,7 +398,7 @@ interface Event {
   source: string
 }
 
-interface TermDefinition {
+export interface TermDefinition {
   term: string
   definition: string
   category: string

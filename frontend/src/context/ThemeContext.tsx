@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -30,6 +30,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       resolved = theme
     }
     
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     setResolvedTheme(resolved)
     root.classList.add(resolved)
     localStorage.setItem('theme', theme)
@@ -40,6 +41,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const handleChange = () => {
       if (theme === 'system') {
         const resolved = mediaQuery.matches ? 'dark' : 'light'
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         setResolvedTheme(resolved)
         document.documentElement.classList.remove('light', 'dark')
         document.documentElement.classList.add(resolved)

@@ -1,10 +1,7 @@
-import React from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useTheme } from '../../context/ThemeContext'
 
 export function Header() {
-  const { theme, resolvedTheme, setTheme } = useTheme()
-  const location = useLocation()
 
   return (
     <header className="header" role="banner">
@@ -33,7 +30,7 @@ export function Header() {
 }
 
 function ThemeToggle() {
-  const { theme, resolvedTheme, setTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
 
   return (
     <div className="theme-toggle" role="group" aria-label="Theme selection">

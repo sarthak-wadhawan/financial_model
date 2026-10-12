@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 export function useClickOutside(
   ref: React.RefObject<HTMLElement>,
@@ -22,14 +22,14 @@ export function useClickOutside(
   }, [ref, handler])
 }
 
-export function useLocalStorage<T>(key: string, initialValue: T) {
+export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
     if (typeof window === 'undefined') {
       return initialValue
     }
     try {
       const item = window.localStorage.getItem(key)
-      return item ? JSON.parse(storedValue) : initialValue
+      return item ? JSON.parse(item) : initialValue
     } catch (error) {
       console.error(error)
       return initialValue
@@ -48,7 +48,7 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
     }
   }
 
-  return [storedValue, setValue] as const
+  return [storedValue, setValue]
 }
 
 export function useMediaQuery(query: string): boolean {
@@ -57,6 +57,7 @@ export function useMediaQuery(query: string): boolean {
   useEffect(() => {
     const media = window.matchMedia(query)
     if (media.matches !== matches) {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       setMatches(media.matches)
     }
     const listener = () => setMatches(media.matches)
@@ -120,6 +121,7 @@ export function usePrevious<T>(value: T): T | undefined {
   useEffect(() => {
     ref.current = value
   }, [value])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   return ref.current
 }
 

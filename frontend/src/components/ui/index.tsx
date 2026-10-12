@@ -1,25 +1,13 @@
-import React, { useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
-
-interface ModalProps {
-  isOpen: boolean
-  onClose: () => void
-  title?: string
-  children: React.ReactNode
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
-  closeOnOverlayClick?: boolean
-  closeOnEscape?: boolean
-  showCloseButton?: boolean
-}
+import React, { useEffect, useRef, useState } from 'react'
 
 export function Modal({
   isOpen,
   onClose,
   title,
   children,
-  size = 'md',
+  size: _size = 'md',
   closeOnOverlayClick = true,
-  closeOnEscape = true,
+  closeOnEscape: _closeOnEscape = true,
   showCloseButton = true,
 }: {
   isOpen: boolean
@@ -31,8 +19,9 @@ export function Modal({
   closeOnEscape?: boolean
   showCloseButton?: boolean
 }) {
-  const overlayRef = React.useRef<HTMLDivElement>(null)
-  const contentRef = React.useRef<HTMLDivElement>(null)
+  // Refs not currently used but reserved for future portal/focus management
+  // const overlayRef = useRef<HTMLDivElement>(null)
+  // const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!isOpen) return
@@ -48,7 +37,7 @@ export function Modal({
       document.removeEventListener('keydown', handleEscape)
       document.body.style.overflow = ''
     }
-  }, [isOpen])
+  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
@@ -56,7 +45,7 @@ export function Modal({
     <div
       className="modal-overlay"
       onClick={e => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget && closeOnOverlayClick) onClose()
       }}
       role="dialog"
       aria-modal="true"
@@ -71,34 +60,24 @@ export function Modal({
         {title && (
           <div className="modal-header">
             <h2 id="modal-title">{title}</h2>
-            <button
-              className="modal-close"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
+            {showCloseButton && (
+              <button
+                className="modal-close"
+                onClick={onClose}
+                aria-label="Close"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            )}
           </div>
         )}
         <div className="modal-content">{children}</div>
       </div>
     </div>
   )
-}
-
-interface ConfirmDialogProps {
-  isOpen: boolean
-  onClose: () => void
-  onConfirm: () => void
-  title: string
-  message: string
-  confirmText?: string
-  cancelText?: string
-  variant?: 'danger' | 'primary' | 'secondary'
-  loading?: boolean
 }
 
 export function ConfirmDialog({
@@ -124,12 +103,6 @@ export function ConfirmDialog({
 }) {
   if (!isOpen) return null
 
-  const variantStyles = {
-    danger: 'btn-danger',
-    primary: 'btn-primary',
-    secondary: 'btn-secondary',
-  }
-
   return (
     <div className="modal-overlay" onClick={() => onClose()} role="dialog" aria-modal="true">
       <div className="modal-dialog" role="document">
@@ -153,7 +126,7 @@ export function ConfirmDialog({
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose} disabled={loading}>
-              Cancel
+              {cancelText}
             </button>
             <button
               type="button"
@@ -161,7 +134,7 @@ export function ConfirmDialog({
               onClick={onConfirm}
               disabled={loading}
             >
-              {loading ? 'Processing...' : 'Confirm'}
+              {loading ? 'Processing...' : confirmText}
             </button>
           </div>
         </div>
@@ -198,14 +171,14 @@ export function Tooltip({
   position?: 'top' | 'bottom' | 'left' | 'right'
   delay?: number
 }) {
-  const [isVisible, setIsVisible] = React.useState(false)
-  const timeoutRef = React.useRef<NodeJS.Timeout>()
+  const [isVisible, setIsVisible] = useState(false)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
   const show = () => {
     timeoutRef.current = setTimeout(() => setIsVisible(true), delay)
   }
   const hide = () => {
-    clearTimeout(timeoutRef.current)
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
     setIsVisible(false)
   }
 
@@ -232,14 +205,14 @@ export function Dropdown({
   items,
   align = 'left',
 }: {
-  children: React.ReactElement
+  trigger: React.ReactNode
   items: Array<{ label: string; onClick: () => void; icon?: React.ReactNode; danger?: boolean; disabled?: boolean }>
   align?: 'left' | 'right'
 }) {
-  const [open, setOpen] = React.useState(false)
-  const ref = React.useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) {
         setOpen(false)
@@ -261,7 +234,7 @@ export function Dropdown({
         {trigger}
       </button>
       {open && (
-        <div className="dropdown-menu" role="menu">
+        <div className={`dropdown-menu ${align === 'right' ? 'dropdown-menu-right' : ''}`} role="menu">
           {items.map((item, index) => (
             <button
               key={index}
@@ -314,7 +287,7 @@ export function Tabs({
 
 export function Badge({ children, variant = 'default', size = 'md' }: {
   children: React.ReactNode
-  variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'primary'
+  variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'primary' | 'secondary'
   size?: 'sm' | 'md' | 'lg'
 }) {
   const variants = {
@@ -324,6 +297,7 @@ export function Badge({ children, variant = 'default', size = 'md' }: {
     error: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
     info: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
     primary: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+    secondary: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
   }
 
   const sizes = {
@@ -447,12 +421,4 @@ export function Progress({ value, max = 100, showLabel = false, size = 'md', var
       {showLabel && <span className="text-sm text-gray-600 dark:text-gray-400 mt-1">{Math.round(percentage)}%</span>}
     </div>
   )
-}
-
-const sizeClasses = { sm: 'h-1', md: 'h-2', lg: 'h-3' }
-const variantClasses = {
-  default: 'bg-blue-600',
-  success: 'bg-green-500',
-  warning: 'bg-yellow-500',
-  error: 'bg-red-500',
 }

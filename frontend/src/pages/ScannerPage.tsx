@@ -1,22 +1,9 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
-import { api } from '../../services/api'
-import { LoadingSpinner, SkeletonCard } from '../ui/LoadingSpinner'
-import { Badge, Tabs, Tab } from '../ui'
-
-interface QuantCandidate {
-  symbol: string
-  quant_score: number
-  momentum_score: number
-  trend_score: number
-  liquidity_score: number
-  volume_score: number
-  volatility_quality_score: number
-  price: number
-  as_of: string
-}
+import { api } from '../services/api'
+import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 
 export function ScannerPage() {
   const [topN, setTopN] = useState(20)
@@ -57,7 +44,7 @@ export function ScannerPage() {
         <div className="page-header-actions">
           <select
             value={topN}
-            onChange={e => setTopN(Number(e.target.value))}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTopN(Number(e.target.value))}
             className="select-input"
             aria-label="Number of results"
           >
@@ -72,16 +59,16 @@ export function ScannerPage() {
       <div className="scanner-toolbar">
         <div className="scanner-stats">
           <div className="stat">
-            <span className="stat-label">Universe</span>
-            <span className="stat-value">{marketOverview?.universe_size || 0}</span>
+            <span className="stat-label">Market Status</span>
+            <span className="stat-value">{marketOverview?.market_status || '—'}</span>
           </div>
           <div className="stat">
-            <span className="stat-label">Eligible</span>
-            <span className="stat-value">{marketOverview?.eligible_count || 0}</span>
+            <span className="stat-label">Symbols Tracked</span>
+            <span className="stat-value">{marketOverview?.symbols_tracked || 0}</span>
           </div>
           <div className="stat">
             <span className="stat-label">As of</span>
-            <span className="stat-value">{marketOverview?.as_of ? format(new Date(marketOverview.as_of), 'MMM d, yyyy') : '—'}</span>
+            <span className="stat-value">{marketOverview?.snapshot_time ? format(new Date(marketOverview.snapshot_time), 'MMM d, yyyy HH:mm') : '—'}</span>
           </div>
         </div>
       </div>
