@@ -316,7 +316,45 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 Do not reopen Phase 10 unless later development reveals an actual functional regression.
 
-**Next Phase:** Phase 11 — Watchlists + Calendar + Alerts
+---
+
+## Phase 11 — Watchlists + Calendar + Alerts (IN PROGRESS)
+
+### Phase 11 Progress Summary (2026-10-12)
+
+**Backend Implementation: ✅ COMPLETE**
+
+- **Watchlists**: Full CRUD + item management
+  - Create/read/update/delete watchlists
+  - Add/remove/reorder symbols with notes
+  - Default watchlist support
+  - Symbol lookup across watchlists
+
+- **Calendar Export**: `.ics` format
+  - Export macro/earnings events with filters (event_types, symbols, date range, importance)
+  - Standards-compliant iCalendar format
+  - Proper duration handling for major events (FOMC, CPI, earnings)
+
+- **Alerts**: Configuration + trigger system
+  - Alert types: price, price_change_pct, volume, earnings, guidance, filing, insider, leadership, news, macro, quant_score
+  - Conditions: above/below/equals/crosses_above/crosses_below/changes
+  - Channels: in_app, email, webhook
+  - Cooldown support, trigger history, acknowledgment
+
+**API Endpoints Added:**
+- `/api/v1/watchlists/*` - Full watchlist management
+- `/api/v1/calendar/export` - `.ics` calendar export
+- `/api/v1/alerts/*` - Alert management + triggers
+
+**Runtime Verification: ✅ PASS**
+- Watchlist CRUD + item management working
+- Calendar `.ics` export generating valid iCalendar format
+- Alert creation + trigger system working
+
+**Test Matrix: ✅ PASS**
+- Backend unit tests: All passing
+
+**Next:** Frontend integration for Phase 11 features
 
 ---
 

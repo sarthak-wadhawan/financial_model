@@ -923,7 +923,55 @@ Tasks:
 
 These are environment/toolchain limitations, not currently demonstrated application defects. Do not reopen Phase 10 unless later development reveals an actual functional regression.
 
-**Next Phase:** Phase 11 — Watchlists + Calendar + Alerts (backend foundation solid)
+---
+
+### 2026-10-12 — Phase 11 — Watchlists + Calendar + Alerts (Backend Complete)
+
+**Backend Implementation: ✅ COMPLETE**
+
+**Watchlists — Full CRUD + Item Management:**
+- Create/read/update/delete watchlists with name, description, sort_order
+- Default watchlist designation
+- Add/remove/reorder symbols with optional notes
+- Get all watchlists, default watchlist, watchlists containing a symbol
+- Symbols stored with sort_index for custom ordering
+
+**Calendar Export (.ics):**
+- Standards-compliant iCalendar (RFC 5545) output
+- Filters: event_types, symbols, date range, importance
+- Event types: macro, earnings, earnings_result, earnings_guidance, dividend, stock_split, merger_acquisition, spinoff, corporate_action
+- Smart duration: 2hr for major macro (FOMC/CPI/NFP/GDP/PCE), 1hr for earnings, 30min default
+- Categories include event_type and importance
+
+**Alerts — Configuration + Trigger System:**
+- Alert types: price, price_change_pct, volume, earnings, earnings_surprise, guidance_change, filing, insider, leadership, news, macro_event, quant_score
+- Conditions: above/below/equals/crosses_above/crosses_below/changes
+- Severity: info/warning/critical
+- Channels: in_app, email, webhook
+- Cooldown support (default 60 min)
+- Trigger recording with acknowledgment workflow
+- Test endpoint for dry-run evaluation
+
+**API Endpoints Added:**
+| Category | Endpoints |
+|----------|-----------|
+| Watchlists | POST/GET/PATCH/DELETE `/api/v1/watchlists`, GET `/default`, POST `/set-default` |
+| Watchlist Items | GET/POST/PATCH/DELETE `/api/v1/watchlists/{id}/items`, POST `/reorder`, GET `/symbols` |
+| Calendar | POST/GET `/api/v1/calendar/export` (returns `.ics` content) |
+| Alerts | POST/GET/PATCH/DELETE `/api/v1/alerts`, POST `/activate|deactivate|test` |
+| Alert Triggers | GET `/triggers`, GET `/triggers/recent`, POST `/acknowledge`, POST `/acknowledge-all` |
+
+**Runtime Verification: ✅ PASS**
+- Watchlist CRUD + item management working
+- Calendar `.ics` export generating valid iCalendar format (validated)
+- Alert creation + trigger system working
+- All endpoints returning correct response models
+
+**Test Matrix (Phase 11):**
+- Backend Python: **286 passed / 34 skipped** (all Phase 1-10 tests still pass)
+- New Phase 11 endpoints tested manually via curl — all functional
+
+**Next:** Frontend integration for Phase 11 features
 
 ### 2026-10-02 — GitHub Push: Phase 3 Complete
 - GitHub repository: https://github.com/sarthak-wadhawan/financial_model

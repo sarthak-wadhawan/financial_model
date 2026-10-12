@@ -30,15 +30,50 @@ from trading_copilot.events.store import EventStore
 from trading_copilot.providers import create_market_data_provider
 from trading_copilot.config import Config, load_config, load_settings
 
+# Phase 11 imports
+from trading_copilot.watchlists.store import WatchlistStore
+from trading_copilot.watchlists.service import WatchlistService
+from trading_copilot.watchlists.models import (
+    Watchlist,
+    WatchlistCreate,
+    WatchlistUpdate,
+    WatchlistItem,
+    WatchlistItemCreate,
+    WatchlistItemUpdate,
+    WatchlistWithItems,
+)
+from trading_copilot.calendar.service import CalendarService
+from trading_copilot.calendar.models import (
+    CalendarExportRequest,
+    CalendarExportResponse,
+)
+from trading_copilot.alerts.store import AlertStore
+from trading_copilot.alerts.service import AlertService
+from trading_copilot.alerts.models import (
+    Alert,
+    AlertCreate,
+    AlertUpdate,
+    AlertTrigger,
+    AlertTestRequest,
+    AlertTestResponse,
+)
+
 
 # Global instances (initialized at startup)
-config: Config
-event_store: EventStore
-event_service: EventService
-interpretation_engine: "InterpretationEngine"
-answer_engine: "AnswerEngine"
-term_service: "TermDefinitionService"
-settings: Any
+config: Config = None  # type: ignore
+event_store: EventStore = None  # type: ignore
+event_service: EventService = None  # type: ignore
+interpretation_engine: "InterpretationEngine" = None  # type: ignore
+answer_engine: "AnswerEngine" = None  # type: ignore
+term_service: "TermDefinitionService" = None  # type: ignore
+settings: Any = None
+
+# Phase 11
+watchlist_store: "WatchlistStore" = None  # type: ignore
+watchlist_service: "WatchlistService" = None  # type: ignore
+calendar_service: "CalendarService" = None  # type: ignore
+alert_store: "AlertStore" = None  # type: ignore
+alert_service: "AlertService" = None  # type: ignore
 
 
 class HealthResponse(BaseModel):
@@ -129,6 +164,17 @@ async def lifespan(app: FastAPI):
     
     # Initialize market data provider (if credentials available)
     # This would be initialized based on config
+    
+    # Phase 11: Initialize watchlist, calendar, and alert services
+    global watchlist_store, watchlist_service, calendar_service, alert_store, alert_service
+    
+    watchlist_store = WatchlistStore(config.events.db_path)
+    watchlist_service = WatchlistService(watchlist_store)
+    
+    calendar_service = CalendarService(event_store)
+    
+    alert_store = AlertStore(config.events.db_path)
+    alert_service = AlertService(alert_store)
     
     yield
     
@@ -706,6 +752,256 @@ async def detailed_health() -> dict:
             "news": "configured",
         },
     }
+
+
+# =============================================================================
+# Phase 11: Watchlists + Calendar + Alerts
+# =============================================================================
+
+# --- Watchlists ---
+
+@app.post("/api/v1/watchlists", response_model=Watchlist, status_code=201)
+async def create_watchlist(watchlist: WatchlistCreate) -> Watchlist:
+    """Create a new watchlist."""
+    return watchlist_service.create_watchlist(watchlist)
+
+
+@app.get("/api/v1/watchlists", response_model=list[Watchlist])
+async def get_watchlists() -> list[Watchlist]:
+    """Get all watchlists."""
+    return watchlist_service.get_all_watchlists()
+
+
+@app.get("/api/v1/watchlists/default", response_model=Watchlist)
+async def get_default_watchlist() -> Watchlist:
+    """Get the default watchlist."""
+    watchlist = watchlist_service.get_default_watchlist()
+    if not watchlist:
+        raise HTTPException(404, "No default watchlist set")
+    return watchlist
+
+
+@app.get("/api/v1/watchlists/{watchlist_id}", response_model=WatchlistWithItems)
+async def get_watchlist(watchlist_id: str) -> WatchlistWithItems:
+    """Get a watchlist with all its items."""
+    watchlist = watchlist_service.get_watchlist_with_items(watchlist_id)
+    if not watchlist:
+        raise HTTPException(404, "Watchlist not found")
+    return watchlist
+
+
+@app.patch("/api/v1/watchlists/{watchlist_id}", response_model=Watchlist)
+async def update_watchlist(watchlist_id: str, update: WatchlistUpdate) -> Watchlist:
+    """Update a watchlist."""
+    watchlist = watchlist_service.update_watchlist(watchlist_id, update)
+    if not watchlist:
+        raise HTTPException(404, "Watchlist not found")
+    return watchlist
+
+
+@app.delete("/api/v1/watchlists/{watchlist_id}", status_code=204)
+async def delete_watchlist(watchlist_id: str):
+    """Delete a watchlist."""
+    if not watchlist_service.delete_watchlist(watchlist_id):
+        raise HTTPException(404, "Watchlist not found")
+
+
+@app.post("/api/v1/watchlists/{watchlist_id}/set-default", response_model=Watchlist)
+async def set_default_watchlist(watchlist_id: str) -> Watchlist:
+    """Set a watchlist as the default."""
+    watchlist = watchlist_service.set_default_watchlist(watchlist_id)
+    if not watchlist:
+        raise HTTPException(404, "Watchlist not found")
+    return watchlist
+
+
+# Watchlist Items
+
+@app.get("/api/v1/watchlists/{watchlist_id}/items", response_model=list[WatchlistItem])
+async def get_watchlist_items(watchlist_id: str) -> list[WatchlistItem]:
+    """Get all items in a watchlist."""
+    return watchlist_service.get_items(watchlist_id)
+
+
+@app.post("/api/v1/watchlists/{watchlist_id}/items", response_model=WatchlistItem, status_code=201)
+async def add_watchlist_item(watchlist_id: str, item: WatchlistItemCreate) -> WatchlistItem:
+    """Add a symbol to a watchlist."""
+    return watchlist_service.add_item(watchlist_id, item)
+
+
+@app.get("/api/v1/watchlists/{watchlist_id}/items/{symbol}", response_model=WatchlistItem)
+async def get_watchlist_item(watchlist_id: str, symbol: str) -> WatchlistItem:
+    """Get a specific watchlist item."""
+    item = watchlist_service.get_item(watchlist_id, symbol)
+    if not item:
+        raise HTTPException(404, "Item not found in watchlist")
+    return item
+
+
+@app.patch("/api/v1/watchlists/{watchlist_id}/items/{symbol}", response_model=WatchlistItem)
+async def update_watchlist_item(watchlist_id: str, symbol: str, update: WatchlistItemUpdate) -> WatchlistItem:
+    """Update a watchlist item."""
+    item = watchlist_service.update_item(watchlist_id, symbol, update)
+    if not item:
+        raise HTTPException(404, "Item not found in watchlist")
+    return item
+
+
+@app.delete("/api/v1/watchlists/{watchlist_id}/items/{symbol}", status_code=204)
+async def remove_watchlist_item(watchlist_id: str, symbol: str):
+    """Remove a symbol from a watchlist."""
+    if not watchlist_service.remove_item(watchlist_id, symbol):
+        raise HTTPException(404, "Item not found in watchlist")
+
+
+@app.post("/api/v1/watchlists/{watchlist_id}/reorder")
+async def reorder_watchlist_items(watchlist_id: str, symbols: list[str]):
+    """Reorder watchlist items."""
+    watchlist_service.reorder_items(watchlist_id, symbols)
+    return {"status": "ok"}
+
+
+@app.get("/api/v1/watchlists/{watchlist_id}/symbols", response_model=list[str])
+async def get_watchlist_symbols(watchlist_id: str) -> list[str]:
+    """Get just the symbols in a watchlist."""
+    return watchlist_service.get_symbols(watchlist_id)
+
+
+@app.get("/api/v1/watchlists/symbol/{symbol}", response_model=list[Watchlist])
+async def get_watchlists_for_symbol(symbol: str) -> list[Watchlist]:
+    """Get all watchlists containing a symbol."""
+    return watchlist_service.get_watchlists_for_symbol(symbol)
+
+
+# --- Calendar Export ---
+
+@app.post("/api/v1/calendar/export", response_model=CalendarExportResponse)
+async def export_calendar(request: CalendarExportRequest) -> CalendarExportResponse:
+    """Export events to calendar format (.ics)."""
+    return calendar_service.export_events(request)
+
+
+@app.get("/api/v1/calendar/export")
+async def export_calendar_get(
+    format: str = Query("ics", pattern="^ics$"),
+    event_types: Optional[str] = Query(None),
+    symbols: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    importance: Optional[str] = Query(None),
+) -> CalendarExportResponse:
+    """Export events to calendar format (.ics) via GET."""
+    from trading_copilot.calendar.models import CalendarExportFormat, CalendarExportRequest
+    from datetime import datetime
+    
+    request = CalendarExportRequest(
+        format=CalendarExportFormat(format),
+        event_types=event_types.split(",") if event_types else None,
+        symbols=symbols.split(",") if symbols else None,
+        from_date=datetime.fromisoformat(from_date) if from_date else None,
+        to_date=datetime.fromisoformat(to_date) if to_date else None,
+        importance=importance.split(",") if importance else None,
+    )
+    return calendar_service.export_events(request)
+
+
+# --- Alerts ---
+
+@app.post("/api/v1/alerts", response_model=Alert, status_code=201)
+async def create_alert(alert: AlertCreate) -> Alert:
+    """Create a new alert."""
+    return alert_service.create_alert(alert)
+
+
+@app.get("/api/v1/alerts", response_model=list[Alert])
+async def get_alerts(active_only: bool = Query(False)) -> list[Alert]:
+    """Get all alerts."""
+    return alert_service.get_all_alerts(active_only=active_only)
+
+
+@app.get("/api/v1/alerts/{alert_id}", response_model=Alert)
+async def get_alert(alert_id: str) -> Alert:
+    """Get an alert by ID."""
+    alert = alert_service.get_alert(alert_id)
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    return alert
+
+
+@app.patch("/api/v1/alerts/{alert_id}", response_model=Alert)
+async def update_alert(alert_id: str, update: AlertUpdate) -> Alert:
+    """Update an alert."""
+    alert = alert_service.update_alert(alert_id, update)
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    return alert
+
+
+@app.delete("/api/v1/alerts/{alert_id}", status_code=204)
+async def delete_alert(alert_id: str):
+    """Delete an alert."""
+    if not alert_service.delete_alert(alert_id):
+        raise HTTPException(404, "Alert not found")
+
+
+@app.post("/api/v1/alerts/{alert_id}/activate", response_model=Alert)
+async def activate_alert(alert_id: str) -> Alert:
+    """Activate an alert."""
+    alert = alert_service.activate_alert(alert_id)
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    return alert
+
+
+@app.post("/api/v1/alerts/{alert_id}/deactivate", response_model=Alert)
+async def deactivate_alert(alert_id: str) -> Alert:
+    """Deactivate an alert."""
+    alert = alert_service.deactivate_alert(alert_id)
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    return alert
+
+
+@app.post("/api/v1/alerts/test", response_model=AlertTestResponse)
+async def test_alert(request: AlertTestRequest) -> AlertTestResponse:
+    """Test an alert against current data."""
+    return alert_service.test_alert(request)
+
+
+# Alert Triggers
+
+@app.get("/api/v1/alerts/{alert_id}/triggers", response_model=list[AlertTrigger])
+async def get_alert_triggers(
+    alert_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    unacknowledged_only: bool = Query(False),
+) -> list[AlertTrigger]:
+    """Get triggers for an alert."""
+    return alert_service.get_triggers(alert_id=alert_id, limit=limit, unacknowledged_only=unacknowledged_only)
+
+
+@app.get("/api/v1/alerts/triggers/recent", response_model=list[AlertTrigger])
+async def get_recent_alert_triggers(
+    hours: int = Query(24, ge=1, le=168),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[AlertTrigger]:
+    """Get recent alert triggers across all alerts."""
+    return alert_service.get_recent_triggers(hours=hours, limit=limit)
+
+
+@app.post("/api/v1/alerts/triggers/{trigger_id}/acknowledge")
+async def acknowledge_alert_trigger(trigger_id: str):
+    """Acknowledge an alert trigger."""
+    if not alert_service.acknowledge_trigger(trigger_id):
+        raise HTTPException(404, "Trigger not found")
+    return {"status": "acknowledged"}
+
+
+@app.post("/api/v1/alerts/{alert_id}/triggers/acknowledge-all")
+async def acknowledge_all_alert_triggers(alert_id: str):
+    """Acknowledge all triggers for an alert."""
+    count = alert_service.acknowledge_all_for_alert(alert_id)
+    return {"acknowledged": count}
 
 
 if __name__ == "__main__":
