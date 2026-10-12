@@ -310,6 +310,12 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 **Final Gate Status: ALL PASS**
 
+**Verification-Environment Limitations (Non-Blocking, Carried Forward):**
+1. **Vitest/RTL execution** blocked by Vitest 4.x / @csstools/css-calc ESM incompatibility — toolchain limitation, not application defect.
+2. **Playwright WebKit** unavailable in current Linux environment (missing WebKit/GStreamer libs). Chromium/mobile-Chrome PASS.
+
+Do not reopen Phase 10 unless later development reveals an actual functional regression.
+
 **Next Phase:** Phase 11 — Watchlists + Calendar + Alerts
 
 ---

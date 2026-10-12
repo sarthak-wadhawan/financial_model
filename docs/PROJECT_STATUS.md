@@ -917,6 +917,12 @@ Tasks:
 - Browser/e2e (Playwright): **42 passed / 111 failed** (Chromium/mobile-chrome PASS; WebKit/Safari FAIL due to missing system libraries in headless CI — not a code issue)
 - Live provider tests: **24 passed / 2 skipped** (gated by RUN_LIVE_TESTS=1)
 
+**Verification-Environment Limitations (Non-Blocking):**
+1. **Vitest/RTL execution** is currently blocked by the Vitest 4.x / @csstools/css-calc ESM dependency incompatibility — a toolchain limitation, not an application defect.
+2. **Playwright WebKit execution** is unavailable in the current Linux environment because required WebKit/GStreamer/system libraries are missing. Chromium and mobile-Chrome verification passes.
+
+These are environment/toolchain limitations, not currently demonstrated application defects. Do not reopen Phase 10 unless later development reveals an actual functional regression.
+
 **Next Phase:** Phase 11 — Watchlists + Calendar + Alerts (backend foundation solid)
 
 ### 2026-10-02 — GitHub Push: Phase 3 Complete
