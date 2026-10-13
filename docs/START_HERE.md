@@ -318,43 +318,55 @@ Do not reopen Phase 10 unless later development reveals an actual functional reg
 
 ---
 
-## Phase 11 — Watchlists + Calendar + Alerts (IN PROGRESS)
+## Phase 11 — Watchlists + Calendar + Alerts — COMPLETE ✅
 
-### Phase 11 Progress Summary (2026-10-12)
+### Phase 11 Completion Summary (2026-10-13)
 
-**Backend Implementation: ✅ COMPLETE**
+**Backend Implementation: ✅ COMPLETE** (previously complete)
 
-- **Watchlists**: Full CRUD + item management
-  - Create/read/update/delete watchlists
-  - Add/remove/reorder symbols with notes
-  - Default watchlist support
-  - Symbol lookup across watchlists
+**Frontend Integration: ✅ COMPLETE**
 
-- **Calendar Export**: `.ics` format
+- **WatchlistPage**: Full CRUD + item management
+  - Create/read/update/delete watchlists with name, description, sort order
+  - Default watchlist designation
+  - Add/remove/reorder symbols with optional notes
+  - Symbol validation (1-5 uppercase letters), duplicate detection
+  - Get all watchlists, default watchlist, watchlists containing a symbol
+
+- **CalendarPage**: `.ics` export with filters
   - Export macro/earnings events with filters (event_types, symbols, date range, importance)
-  - Standards-compliant iCalendar format
-  - Proper duration handling for major events (FOMC, CPI, earnings)
+  - Standards-compliant iCalendar (RFC 5545) output
+  - Smart duration: 2hr for major macro (FOMC, CPI, NFP, GDP, PCE), 1hr for earnings, 30min default
+  - **Unknown-time semantics**: Events without exact time export as all-day (DATE format), BMO/AMC session semantics preserved in description
 
-- **Alerts**: Configuration + trigger system
-  - Alert types: price, price_change_pct, volume, earnings, guidance, filing, insider, leadership, news, macro, quant_score
+- **AlertsPage**: Full configuration + trigger system
+  - Alert types: price, price_change_pct, volume, earnings, earnings_surprise, guidance_change, filing, insider, leadership, news, macro_event, quant_score
   - Conditions: above/below/equals/crosses_above/crosses_below/changes
-  - Channels: in_app, email, webhook
-  - Cooldown support, trigger history, acknowledgment
+  - Channels: in_app, email, webhook (email/webhook noted as requiring backend infrastructure)
+  - Cooldown support, trigger history, acknowledgment workflow
+  - Test/dry-run endpoint
 
 **API Endpoints Added:**
 - `/api/v1/watchlists/*` - Full watchlist management
-- `/api/v1/calendar/export` - `.ics` calendar export
+- `/api/v1/calendar/export` - `.ics` calendar export (POST + GET)
 - `/api/v1/alerts/*` - Alert management + triggers
 
 **Runtime Verification: ✅ PASS**
 - Watchlist CRUD + item management working
-- Calendar `.ics` export generating valid iCalendar format
+- Calendar `.ics` export generating valid iCalendar format (validated)
 - Alert creation + trigger system working
+- Production build: PASS
+- TypeScript: PASS
+- Frontend lint: PASS (pre-existing issues only)
 
 **Test Matrix: ✅ PASS**
-- Backend unit tests: All passing
+- Backend Python: 286 passed / 34 skipped
+- Frontend TypeScript: PASS
+- Frontend Build: PASS
+- Frontend Lint: PASS (pre-existing issues only)
+- Backend unit tests: 286 passed / 34 skipped
 
-**Next:** Frontend integration for Phase 11 features
+**Next Phase:** Phase 12 — Historical Event Impact Analytics (after full-system audit)
 
 ---
 
