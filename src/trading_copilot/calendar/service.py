@@ -91,16 +91,34 @@ class CalendarService:
         return all_events
 
     def _to_calendar_event(self, event) -> CalendarEvent:
-        """Convert MarketEvent to CalendarEvent."""
-        # Use scheduled_at as start time, or released_at if no scheduled
-        dtstart = event.scheduled_at or event.released_at or datetime.now()
+        """Convert MarketEvent to CalendarEvent with proper time semantics."""
+        # Check if event has exact time (scheduled_at with time component, or released_at with time)
+        has_exact_time = False
+        dtstart = None
 
-        # Default duration: 30 minutes for most events
+        if event.scheduled_at:
+            dtstart = event.scheduled_at
+            # Check if it has a time component (not midnight UTC)
+            if dtstart.hour != 0 or dtstart.minute != 0 or dtstart.second != 0:
+                has_exact_time = True
+        elif event.released_at:
+            dtstart = event.released_at
+            # Check if it has a time component
+            if dtstart.hour != 0 or dtstart.minute != 0 or dtstart.second != 0:
+                has_exact_time = True
+
+        # If no scheduled time at all, use released_at or date-only
+        if dtstart is None:
+            dtstart = event.released_at or datetime.now()
+            has_exact_time = False
+
+        # For date-only events (no exact time), use all-day event (DATE value in iCalendar)
+        # For events with exact time, use timed event
+        is_all_day = not has_exact_time
+
+        # Default duration for timed events
         duration = timedelta(minutes=30)
-        
-        # Longer duration for major macro events
         if event.event_type == EventType.MACRO:
-            # Check if it's a major macro event by title
             title_lower = event.title.lower() if event.title else ""
             if any(term in title_lower for term in ["fomc", "cpi", "nfm", "payroll", "gdp", "pce"]):
                 duration = timedelta(hours=2)
@@ -109,9 +127,9 @@ class CalendarService:
         elif event.event_type in [EventType.EARNINGS, EventType.EARNINGS_RESULT]:
             duration = timedelta(hours=1)
 
-        dtend = dtstart + duration
+        dtend = dtstart + duration if has_exact_time else None
 
-        # Build description
+        # Build description with session semantics preserved
         description_parts = []
         if event.description:
             description_parts.append(event.description)
@@ -121,6 +139,21 @@ class CalendarService:
             description_parts.append(f"Forecast: {event.forecast}")
         if event.previous is not None:
             description_parts.append(f"Previous: {event.previous}")
+
+        # Preserve BMO/AMC session semantics in description
+        session_info = None
+        if event.metadata:
+            session_info = event.metadata.get('release_time_source') or event.metadata.get('session')
+        if session_info:
+            description_parts.append(f"Session: {session_info}")
+        elif event.event_type == EventType.EARNINGS:
+            # Try to infer from metadata or title
+            title_lower = event.title.lower() if event.title else ""
+            if 'bmo' in title_lower or 'before market' in title_lower:
+                description_parts.append("Session: Before Market Open (BMO)")
+            elif 'amc' in title_lower or 'after market' in title_lower:
+                description_parts.append("Session: After Market Close (AMC)")
+
         if event.source_url:
             description_parts.append(f"Source: {event.source_url}")
 
@@ -138,6 +171,7 @@ class CalendarService:
             dtstamp=datetime.now(),
             url=event.source_url,
             categories=categories,
+            all_day=is_all_day,
         )
 
     def _generate_ics(self, events: List[CalendarEvent]) -> str:
@@ -156,9 +190,16 @@ class CalendarService:
             lines.append("BEGIN:VEVENT")
             lines.append(f"UID:{event.uid}")
             lines.append(f"DTSTAMP:{self._format_dt(event.dtstamp)}")
-            lines.append(f"DTSTART:{self._format_dt(event.dtstart)}")
-            if event.dtend:
-                lines.append(f"DTEND:{self._format_dt(event.dtend)}")
+            if event.all_day:
+                # All-day event uses DATE format (YYYYMMDD)
+                lines.append(f"DTSTART;VALUE=DATE:{self._format_date(event.dtstart)}")
+                if event.dtend:
+                    lines.append(f"DTEND;VALUE=DATE:{self._format_date(event.dtend)}")
+            else:
+                # Timed event uses DATE-TIME format
+                lines.append(f"DTSTART:{self._format_dt(event.dtstart)}")
+                if event.dtend:
+                    lines.append(f"DTEND:{self._format_dt(event.dtend)}")
             lines.append(f"SUMMARY:{self._escape_ics(event.summary)}")
             if event.description:
                 lines.append(f"DESCRIPTION:{self._escape_ics(event.description)}")
@@ -179,6 +220,12 @@ class CalendarService:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=None)
         return dt.strftime("%Y%m%dT%H%M%SZ")
+
+    def _format_date(self, dt: datetime) -> str:
+        """Format date for iCalendar (DATE format YYYYMMDD)."""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=None)
+        return dt.strftime("%Y%m%d")
 
     def _escape_ics(self, text: str) -> str:
         """Escape text for iCalendar format."""

@@ -40,6 +40,11 @@ class ApiClient {
     return response.data
   }
 
+  async patch<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+    const response = await this.client.patch<T>(url, data, config)
+    return response.data
+  }
+
   async delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.client.delete<T>(url, config)
     return response.data
@@ -143,6 +148,128 @@ class ApiClient {
 
   async searchTerms(query: string, limit?: number) {
     return this.get<TermDefinition[]>(`/terms/search`, { params: { q: query, limit } })
+  }
+
+  // Phase 11: Watchlists
+  async getWatchlists() {
+    return this.get<Watchlist[]>('/watchlists')
+  }
+
+  async getWatchlist(watchlistId: string) {
+    return this.get<WatchlistWithItems>(`/watchlists/${watchlistId}`)
+  }
+
+  async createWatchlist(watchlist: WatchlistCreate) {
+    return this.post<Watchlist>('/watchlists', watchlist)
+  }
+
+  async updateWatchlist(watchlistId: string, update: WatchlistUpdate) {
+    return this.patch<Watchlist>(`/watchlists/${watchlistId}`, update)
+  }
+
+  async deleteWatchlist(watchlistId: string) {
+    return this.delete<void>(`/watchlists/${watchlistId}`)
+  }
+
+  async setDefaultWatchlist(watchlistId: string) {
+    return this.post<Watchlist>(`/watchlists/${watchlistId}/set-default`)
+  }
+
+  async getWatchlistItems(watchlistId: string) {
+    return this.get<WatchlistItem[]>(`/watchlists/${watchlistId}/items`)
+  }
+
+  async addWatchlistItem(watchlistId: string, item: WatchlistItemCreate) {
+    return this.post<WatchlistItem>(`/watchlists/${watchlistId}/items`, item)
+  }
+
+  async updateWatchlistItem(watchlistId: string, symbol: string, update: WatchlistItemUpdate) {
+    return this.patch<WatchlistItem>(`/watchlists/${watchlistId}/items/${symbol}`, update)
+  }
+
+  async removeWatchlistItem(watchlistId: string, symbol: string) {
+    return this.delete<void>(`/watchlists/${watchlistId}/items/${symbol}`)
+  }
+
+  async reorderWatchlistItems(watchlistId: string, symbols: string[]) {
+    return this.post<void>(`/watchlists/${watchlistId}/reorder`, { symbols })
+  }
+
+  async getWatchlistSymbols(watchlistId: string) {
+    return this.get<string[]>(`/watchlists/${watchlistId}/symbols`)
+  }
+
+  async getWatchlistsForSymbol(symbol: string) {
+    return this.get<Watchlist[]>(`/watchlists/symbol/${symbol}`)
+  }
+
+  // Phase 11: Calendar
+  async exportCalendar(request: CalendarExportRequest) {
+    return this.post<CalendarExportResponse>('/calendar/export', request)
+  }
+
+  async exportCalendarGet(params: {
+    format?: string
+    event_types?: string
+    symbols?: string
+    from_date?: string
+    to_date?: string
+    importance?: string
+  }) {
+    return this.get<CalendarExportResponse>('/calendar/export', { params })
+  }
+
+  // Phase 11: Alerts
+  async getAlerts(activeOnly?: boolean) {
+    return this.get<Alert[]>('/alerts', { params: { active_only: activeOnly } })
+  }
+
+  async getAlert(alertId: string) {
+    return this.get<Alert>(`/alerts/${alertId}`)
+  }
+
+  async createAlert(alert: AlertCreate) {
+    return this.post<Alert>('/alerts', alert)
+  }
+
+  async updateAlert(alertId: string, update: AlertUpdate) {
+    return this.patch<Alert>(`/alerts/${alertId}`, update)
+  }
+
+  async deleteAlert(alertId: string) {
+    return this.delete<void>(`/alerts/${alertId}`)
+  }
+
+  async activateAlert(alertId: string) {
+    return this.post<Alert>(`/alerts/${alertId}/activate`)
+  }
+
+  async deactivateAlert(alertId: string) {
+    return this.post<Alert>(`/alerts/${alertId}/deactivate`)
+  }
+
+  async testAlert(request: AlertTestRequest) {
+    return this.post<AlertTestResponse>('/alerts/test', request)
+  }
+
+  async getAlertTriggers(alertId: string, limit?: number, unacknowledgedOnly?: boolean) {
+    return this.get<AlertTrigger[]>(`/alerts/${alertId}/triggers`, {
+      params: { limit, unacknowledged_only: unacknowledgedOnly }
+    })
+  }
+
+  async getRecentAlertTriggers(hours?: number, limit?: number) {
+    return this.get<AlertTrigger[]>('/alerts/triggers/recent', {
+      params: { hours, limit }
+    })
+  }
+
+  async acknowledgeAlertTrigger(triggerId: string) {
+    return this.post<void>(`/alerts/triggers/${triggerId}/acknowledge`)
+  }
+
+  async acknowledgeAllAlertTriggers(alertId: string) {
+    return this.post<{ acknowledged: number }>(`/alerts/${alertId}/triggers/acknowledge-all`)
   }
 }
 
@@ -405,4 +532,146 @@ export interface TermDefinition {
   source: string
   source_url: string
   related_terms: string[]
+}
+
+// Phase 11: Watchlists
+export interface Watchlist {
+  id: string
+  name: string
+  description: string | null
+  sort_order: 'manual' | 'symbol' | 'quant_score' | 'price_change' | 'market_cap'
+  is_default: boolean
+  created_at: string
+  updated_at: string
+  item_count: number
+  symbols: string[]
+}
+
+export interface WatchlistWithItems extends Watchlist {
+  items: WatchlistItem[]
+}
+
+export interface WatchlistItem {
+  symbol: string
+  added_at: string
+  notes: string | null
+  sort_index: number
+}
+
+export interface WatchlistCreate {
+  name: string
+  description?: string
+  sort_order?: 'manual' | 'symbol' | 'quant_score' | 'price_change' | 'market_cap'
+  is_default?: boolean
+}
+
+export interface WatchlistUpdate {
+  name?: string
+  description?: string
+  sort_order?: 'manual' | 'symbol' | 'quant_score' | 'price_change' | 'market_cap'
+  is_default?: boolean
+}
+
+export interface WatchlistItemCreate {
+  symbol: string
+  notes?: string
+}
+
+export interface WatchlistItemUpdate {
+  notes?: string
+  sort_index?: number
+}
+
+// Phase 11: Calendar
+export interface CalendarExportRequest {
+  format: 'ics'
+  event_types?: string[]
+  symbols?: string[]
+  from_date?: string
+  to_date?: string
+  importance?: string[]
+}
+
+export interface CalendarExportResponse {
+  format: 'ics'
+  content: string
+  filename: string
+  event_count: number
+}
+
+// Phase 11: Alerts
+export interface Alert {
+  id: string
+  user_id: string | null
+  name: string
+  description: string | null
+  alert_type: string
+  symbols: string[]
+  condition: string
+  threshold: number | null
+  threshold_secondary: number | null
+  severity: 'info' | 'warning' | 'critical'
+  channels: ('in_app' | 'email' | 'webhook')[]
+  is_active: boolean
+  cooldown_minutes: number
+  metadata: Record<string, any>
+  created_at: string
+  updated_at: string
+  last_triggered: string | null
+  trigger_count: number
+}
+
+export interface AlertCreate {
+  name: string
+  description?: string
+  alert_type: string
+  symbols: string[]
+  condition: string
+  threshold: number | null
+  threshold_secondary?: number
+  severity?: 'info' | 'warning' | 'critical'
+  channels?: ('in_app' | 'email' | 'webhook')[]
+  is_active?: boolean
+  cooldown_minutes?: number
+  metadata?: Record<string, any>
+}
+
+export interface AlertUpdate {
+  name?: string
+  description?: string
+  symbols?: string[]
+  condition?: string
+  threshold?: number | null
+  threshold_secondary?: number | null
+  severity?: 'info' | 'warning' | 'critical'
+  channels?: ('in_app' | 'email' | 'webhook')[]
+  is_active?: boolean
+  cooldown_minutes?: number
+  metadata?: Record<string, any>
+}
+
+export interface AlertTrigger {
+  id: string
+  alert_id: string
+  symbol: string
+  alert_type: string
+  message: string
+  value: number | null
+  threshold: number | null
+  severity: string
+  triggered_at: string
+  acknowledged: boolean
+  acknowledged_at: string | null
+  metadata: Record<string, any>
+}
+
+export interface AlertTestRequest {
+  alert_id: string
+}
+
+export interface AlertTestResponse {
+  would_trigger: boolean
+  symbols_checked: string[]
+  current_values: Record<string, any>
+  message?: string
 }

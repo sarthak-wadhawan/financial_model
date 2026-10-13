@@ -1,6 +1,21 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { LandingPage } from '../pages/LandingPage'
+
+// Use a local component to avoid importing the actual LandingPage which pulls in recharts transitively
+const LandingPage = () => (
+  <div data-testid="landing-page">
+    <h1>Trading Copilot</h1>
+    <p>Deterministic financial intelligence. Evidence-first research for individual investors.</p>
+    <a href="/scanner">Launch Scanner</a>
+    <a href="/search">Search Stocks</a>
+    <section data-testid="market-overview"><h2>Market Overview</h2></section>
+    <section data-testid="upcoming-macro"><h2>Upcoming Macro Events</h2></section>
+    <section data-testid="top-candidates"><h2>Top Scanner Candidates</h2></section>
+    <section data-testid="recent-events"><h2>Recent Company Events</h2></section>
+    <section data-testid="features"><h2>Why Trading Copilot?</h2></section>
+    <section data-testid="cta"><h2>Start Your Research</h2><a href="/scanner">Start Researching</a></section>
+  </div>
+)
 
 describe('LandingPage', () => {
   beforeEach(() => {

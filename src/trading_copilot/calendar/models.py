@@ -23,6 +23,7 @@ class CalendarEvent(BaseModel):
     dtstamp: datetime
     url: Optional[str] = None
     categories: List[str] = Field(default_factory=list)
+    all_day: bool = False
 
 
 class CalendarExportRequest(BaseModel):

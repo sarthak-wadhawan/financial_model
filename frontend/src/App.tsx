@@ -15,6 +15,9 @@ const MacroCalendarPage = lazy(() => import('./pages/MacroCalendarPage'))
 const ScannerPage = lazy(() => import('./pages/ScannerPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
+const WatchlistPage = lazy(() => import('./pages/WatchlistPage'))
+const CalendarPage = lazy(() => import('./pages/CalendarPage'))
+const AlertsPage = lazy(() => import('./pages/AlertsPage'))
 
 function App() {
   const { resolvedTheme } = useTheme()
@@ -40,6 +43,9 @@ function App() {
                 <Route path="/macro" element={<MacroCalendarPage />} />
                 <Route path="/scanner" element={<ScannerPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/watchlists" element={<WatchlistPage />} />
+                <Route path="/calendar" element={<CalendarPage />} />
+                <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </main>
