@@ -183,5 +183,8 @@ class EventService:
     def get_revisions(self, event_id: str) -> list[EventRevision]:
         return self.store.get_revisions(event_id)
 
+    def events_as_of(self, as_of: datetime) -> list[MarketEvent]:
+        return self.store.events_as_of(as_of)
+
     def close(self) -> None:
         self.store.close()

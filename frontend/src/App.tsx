@@ -26,16 +26,17 @@ function App() {
     <div className={`app ${resolvedTheme}`}>
       <Suspense fallback={<LoadingSpinner size="lg" />}>
         <div className="app-layout">
-          <header className="app-header">
+          <a className="skip-link" href="#main-content">Skip to content</a>
+          <div className="app-header">
             <Header />
-          </header>
+          </div>
           
-          <main className="app-main">
-            <aside className="app-sidebar">
+          <div className="app-main">
+            <div className="app-sidebar">
               <Sidebar />
-            </aside>
+            </div>
             
-            <main className="app-content">
+            <main className="app-content" id="main-content" tabIndex={-1}>
               <Routes>
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/stocks/:symbol" element={<StockPage />} />
@@ -44,16 +45,17 @@ function App() {
                 <Route path="/scanner" element={<ScannerPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/watchlists" element={<WatchlistPage />} />
+                <Route path="/watchlists/:watchlistId" element={<WatchlistPage />} />
                 <Route path="/calendar" element={<CalendarPage />} />
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </main>
-          </main>
+          </div>
           
-          <footer className="app-footer">
+          <div className="app-footer">
             <Footer />
-          </footer>
+          </div>
         </div>
       </Suspense>
       <Toaster />

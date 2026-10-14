@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useMediaQuery } from '../hooks'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -13,43 +14,20 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window !== 'undefined') {
-      return (localStorage.getItem('theme') as Theme) || 'system'
+      try { const saved = localStorage.getItem('theme'); return saved === 'light' || saved === 'dark' ? saved : 'system' } catch { return 'system' }
     }
     return 'system'
   })
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light')
+  const systemDark = useMediaQuery('(prefers-color-scheme: dark)')
+  const resolvedTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme
 
   useEffect(() => {
     const root = window.document.documentElement
     root.classList.remove('light', 'dark')
     
-    let resolved: 'light' | 'dark'
-    if (theme === 'system') {
-      resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-    } else {
-      resolved = theme
-    }
-    
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    setResolvedTheme(resolved)
-    root.classList.add(resolved)
-    localStorage.setItem('theme', theme)
-  }, [theme])
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = () => {
-      if (theme === 'system') {
-        const resolved = mediaQuery.matches ? 'dark' : 'light'
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        setResolvedTheme(resolved)
-        document.documentElement.classList.remove('light', 'dark')
-        document.documentElement.classList.add(resolved)
-      }
-    }
-    mediaQuery.addEventListener('change', handleChange)
-    return () => mediaQuery.removeEventListener('change', handleChange)
-  }, [theme])
+    root.classList.add(resolvedTheme)
+    try { localStorage.setItem('theme', theme) } catch { /* Theme still works when storage is unavailable. */ }
+  }, [theme, resolvedTheme])
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme)

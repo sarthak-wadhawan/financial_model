@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,6 +11,8 @@ from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from backend.website_data import WebsiteDataAdapter
+from backend.website_sources import WebsiteSourceAdapter
 
 from trading_copilot.config import Config, load_config, load_settings
 from trading_copilot.events.store import EventStore
@@ -26,9 +28,7 @@ from trading_copilot.models.interpretation import (
     AnswerRequest,
 )
 from trading_copilot.models.events import EventType, MarketEvent
-from trading_copilot.events.store import EventStore
 from trading_copilot.providers import create_market_data_provider
-from trading_copilot.config import Config, load_config, load_settings
 
 # Phase 11 imports
 from trading_copilot.watchlists.store import WatchlistStore
@@ -67,6 +67,8 @@ interpretation_engine: "InterpretationEngine" = None  # type: ignore
 answer_engine: "AnswerEngine" = None  # type: ignore
 term_service: "TermDefinitionService" = None  # type: ignore
 settings: Any = None
+market_adapter: WebsiteDataAdapter = None  # type: ignore
+source_adapter: WebsiteSourceAdapter = None  # type: ignore
 
 # Phase 11
 watchlist_store: "WatchlistStore" = None  # type: ignore
@@ -91,9 +93,10 @@ class MarketOverviewResponse(BaseModel):
 
 class SymbolSearchResult(BaseModel):
     symbol: str
-    name: str
-    exchange: str
-    asset_type: str
+    name: str | None
+    exchange: str | None
+    type: str
+    source: str
 
 
 class MarketOverviewData(BaseModel):
@@ -135,18 +138,51 @@ class CompanyEventResponse(BaseModel):
 
 class SearchResult(BaseModel):
     symbol: str
-    name: str
-    asset_type: str
-    exchange: str
+    name: str | None
+    type: str
+    exchange: str | None
+
+
+class QuestionBody(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    context: Optional[dict[str, Any]] = None
+
+
+class ReorderBody(BaseModel):
+    symbols: list[str] = Field(max_length=50)
+
+
+def validate_symbol(symbol: str) -> str:
+    import re
+    symbol = symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,9}", symbol):
+        raise HTTPException(400, "Invalid ticker symbol")
+    return symbol
+
+
+def event_time(event):
+    value = event.scheduled_at or event.released_at
+    return value.replace(tzinfo=timezone.utc) if value and value.tzinfo is None else value or datetime.min.replace(tzinfo=timezone.utc)
+
+
+def filter_events(events, from_date=None, to_date=None, importance=None):
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(400, "from_date must not be after to_date")
+    if importance and importance not in {"low", "medium", "high", "critical"}:
+        raise HTTPException(400, "Invalid importance")
+    return [e for e in events if (not from_date or (e.scheduled_at or e.released_at) and event_time(e).date() >= from_date)
+            and (not to_date or (e.scheduled_at or e.released_at) and event_time(e).date() <= to_date)
+            and (not importance or e.importance.value == importance)]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global config, event_store, event_store, event_service, interpretation_engine, answer_engine, term_service, settings
+    global config, event_store, event_service, interpretation_engine, answer_engine, term_service, settings, market_adapter, source_adapter
     
     # Load configuration
     config = load_config(Path(__file__).parent / "config.yaml")
+    config.events.db_path = os.environ.get("TRADING_COPILOT_DB_PATH", str(Path(__file__).resolve().parents[1] / config.events.db_path))
     settings = load_settings()
     
     # Initialize event store
@@ -162,8 +198,15 @@ async def lifespan(app: FastAPI):
     
     term_service = get_term_service()
     
-    # Initialize market data provider (if credentials available)
-    # This would be initialized based on config
+    market_adapter = WebsiteDataAdapter(config, settings, mode=os.environ.get("WEBSITE_DATA_MODE", "real"))
+    source_adapter = WebsiteSourceAdapter(event_store, settings)
+    # Bounded refresh at startup if explicitly enabled; no auto-scheduler.
+    refresh_symbols_env = os.environ.get("WEBSITE_REFRESH_SYMBOLS")
+    if os.environ.get("WEBSITE_REFRESH_PROVIDERS") == "1" and refresh_symbols_env:
+        from starlette.concurrency import run_in_threadpool
+        symbols = [s.strip().upper() for s in refresh_symbols_env.split(",") if s.strip()]
+        if symbols:
+            await run_in_threadpool(source_adapter.refresh, symbols)
     
     # Phase 11: Initialize watchlist, calendar, and alert services
     global watchlist_store, watchlist_service, calendar_service, alert_store, alert_service
@@ -178,8 +221,8 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Cleanup
-    pass
+    market_adapter.close()
+    event_store.close()
 
 
 app = FastAPI(
@@ -192,11 +235,21 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(ValueError)
+async def invalid_service_input(request, exc):
+    return JSONResponse(status_code=400, content={"detail": "Invalid request or service precondition"})
+
+
+@app.exception_handler(KeyError)
+async def missing_service_entity(request, exc):
+    return JSONResponse(status_code=404, content={"detail": "Requested entity not found"})
 
 
 # Health check endpoint
@@ -206,56 +259,71 @@ async def health_check():
 
 
 # Market overview
-@app.get("/api/v1/market/overview", response_model=MarketOverviewResponse)
-async def get_market_overview():
+@app.get("/api/v1/market/overview")
+def get_market_overview():
     """Get market overview with key metrics."""
-    # TODO: Implement actual market data fetching
-    return MarketOverviewResponse(
-        timestamp=datetime.now(timezone.utc),
-        symbols_tracked=0,
-        quant_scanner_status="ready",
-        market_data_status="operational",
-    )
+    return market_adapter.overview()
+
+
+# Market refresh (bounded, server-side)
+class RefreshRequest(BaseModel):
+    symbols: list[str] = Field(default_factory=list, max_length=100)
+
+
+@app.post("/api/v1/market/refresh")
+async def refresh_market_data(request: RefreshRequest):
+    """Trigger bounded provider refresh for specified symbols."""
+    if not request.symbols:
+        return {"status": "skipped", "reason": "No symbols provided", "state": source_adapter.state}
+    symbols = [s.strip().upper() for s in request.symbols if s.strip()]
+    if not symbols:
+        return {"status": "skipped", "reason": "No valid symbols provided", "state": source_adapter.state}
+    from starlette.concurrency import run_in_threadpool
+    state = await run_in_threadpool(source_adapter.refresh, symbols)
+    return {"status": "completed", "symbols": symbols, "state": state}
 
 
 # Search symbols
 @app.get("/api/v1/symbols/search")
-async def search_symbols(
+def search_symbols(
     q: str = Query(..., min_length=1, max_length=10),
     limit: int = Query(10, ge=1, le=50),
-) -> list[SymbolSearchResult]:
+) -> list[dict]:
     """Search for symbols by ticker or name."""
-    # TODO: Implement symbol search against universe
-    return []
+    return market_adapter.search(q, limit)
 
 
 # Symbol detail
 @app.get("/api/v1/stocks/{symbol}")
-async def get_stock_detail(symbol: str) -> dict:
+def get_stock_detail(symbol: str) -> dict:
     """Get comprehensive stock detail page data."""
-    symbol = symbol.upper()
+    symbol = validate_symbol(symbol)
     
     # Get interpretation
-    interp_request = InterpretationRequest(symbol=symbol)
     interpretation = interpretation_engine.generate_interpretation(
         InterpretationRequest(symbol=symbol)
     )
     
     # Get quant data (from scanner)
     # Get events
-    events = event_service.get_recent_company_events(symbol, limit=50)
+    events = event_store.events_for_symbol(symbol, limit=50)
+    price = market_adapter.price(symbol)
+    quant = market_adapter.quant(symbol)
+    metadata = next((s for s in market_adapter.search(symbol, 50) if s["symbol"] == symbol), {})
     
     # Get price data
     # Get quant scores
     
     return {
         "symbol": symbol,
-        "name": "",  # TODO: fetch from universe
+        "name": metadata.get("name"), "exchange": metadata.get("exchange"),
+        "price": price["price"], "change": price["change"], "change_pct": price["change_pct"], "volume": price["volume"],
+        "market_cap": None, "pe_ratio": None, "dividend_yield": None,
         "interpretation": interpretation.model_dump() if interpretation else None,
         "events": [e.model_dump() for e in events],
-        "quant_signals": {},  # TODO
-        "price_data": {},  # TODO
-        "quant_signals_components": {},  # TODO
+        "quant_signals": quant,
+        "price_data": price,
+        "quant_signals_components": quant["components"],
     }
 
 
@@ -276,12 +344,11 @@ async def get_interpretation(
 @app.post("/api/v1/stocks/{symbol}/answer")
 async def answer_question(
     symbol: str,
-    request: AnswerRequest,
+    request: QuestionBody,
 ) -> Answer:
     """Answer a specific question about a symbol."""
     symbol = symbol.upper()
-    request.symbol = symbol
-    return answer_engine.answer_question(request)
+    return answer_engine.answer_question(AnswerRequest(symbol=validate_symbol(symbol), question=request.question, context=request.context))
 
 
 # Q&A endpoint (GET for convenience)
@@ -315,69 +382,38 @@ async def get_company_events(
     symbol: str,
     event_types: Optional[list[str]] = Query(None),
     limit: int = Query(50, ge=1, le=200),
-) -> list[CompanyEventResponse]:
+) -> list[MarketEvent]:
     """Get company events for a symbol."""
     symbol = symbol.upper()
-    event_types = None
     if event_types:
-        event_types = [EventType(t) for t in event_types]
+        try:
+            event_types = [EventType(t) for item in event_types for t in item.split(",")]
+        except ValueError:
+            raise HTTPException(400, "Invalid event type")
     
     events = event_store.events_for_symbol(
         symbol=symbol,
         event_types=event_types,
         limit=limit,
     )
-    return [CompanyEventResponse(
-        event_id=e.event_id,
-        symbol=e.symbol,
-        title=e.title,
-        event_type=e.event_type.value,
-        scheduled_at=e.scheduled_at,
-        released_at=e.released_at,
-        importance=e.importance.value,
-        status=e.status.value,
-        source=e.source,
-        source_url=e.source_url,
-        metadata=e.metadata,
-    ) for e in events]
+    return events
 
 
 # Macro events
 @app.get("/api/v1/events/macro")
-async def get_macro_events(
+async def macro_events(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     importance: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
-) -> list[MacroEventResponse]:
+) -> list[MarketEvent]:
     """Get macro events."""
     events = event_store.events_by_type(
         event_type=EventType.MACRO,
-        limit=limit,
+        limit=10000,
     )
     
-    # Filter by date range and importance
-    if from_date:
-        events = [e for e in events if e.released_at and e.released_at.date() >= from_date]
-    if to_date:
-        events = [e for e in events if e.released_at and e.released_at.date() <= to_date]
-    if importance:
-        events = [e for e in events if e.importance.value == importance]
-    
-    return [MacroEventResponse(
-        event_id=e.event_id,
-        title=e.title,
-        event_type=e.event_type.value,
-        scheduled_at=e.scheduled_at,
-        released_at=e.released_at,
-        actual=e.actual,
-        forecast=e.forecast,
-        previous=e.previous,
-        importance=e.importance.value,
-        status=e.status.value,
-        source=e.source,
-        source_url=e.source_url,
-    ) for e in events]
+    return filter_events(events, from_date, to_date, importance=importance)[:limit]
 
 
 # Company events (earnings, corporate actions)
@@ -388,7 +424,7 @@ async def get_company_events(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     limit: int = Query(100, ge=1, le=500),
-) -> list[CompanyEventResponse]:
+) -> list[MarketEvent]:
     """Get company events (earnings, corporate actions, etc.)."""
     event_types = None
     if event_type:
@@ -400,43 +436,24 @@ async def get_company_events(
     if symbol:
         events = event_store.events_for_symbol(
             symbol=symbol.upper(),
-            event_types=[EventType.EARNINGS, EventType.EARNINGS_RESULT, EventType.EARNINGS_GUIDANCE, 
-                        EventType.EARNINGS_REACTION, EventType.DIVIDEND, EventType.STOCK_SPLIT,
-                        EventType.MERGER_ACQUISITION, EventType.SPINOFF, EventType.CORPORATE_ACTION],
-            limit=limit,
+            event_types=event_types,
+            limit=10000,
         )
     else:
         # Get all company events across all symbols
         events = []
-        for et in [EventType.EARNINGS, EventType.EARNINGS_RESULT, EventType.EARNINGS_GUIDANCE,
-                   EventType.EARNINGS_REACTION, EventType.DIVIDEND, EventType.STOCK_SPLIT,
-                   EventType.MERGER_ACQUISITION, EventType.SPINOFF, EventType.CORPORATE_ACTION]:
-            events.extend(event_store.events_by_type(et, limit=limit))
+        for et in event_types or [t for t in EventType if t != EventType.MACRO]:
+            events.extend(event_store.events_by_type(et, limit=10000))
     
-    # Filter
-    if from_date:
-        events = [e for e in events if e.released_at and e.released_at.date() >= from_date]
-    if to_date:
-        events = [e for e in events if e.released_at and e.released_at.date() <= to_date]
+    # Filter on known event date, including scheduled events.
     if symbol:
         events = [e for e in events if e.symbol == symbol.upper()]
     
-    events.sort(key=lambda e: (e.released_at or e.scheduled_at or datetime.min), reverse=True)
+    events = filter_events(events, from_date, to_date)
+    events.sort(key=lambda e: event_time(e), reverse=True)
     events = events[:limit]
     
-    return [CompanyEventResponse(
-        event_id=e.event_id,
-        symbol=e.symbol,
-        title=e.title,
-        event_type=e.event_type.value,
-        scheduled_at=e.scheduled_at,
-        released_at=e.released_at,
-        importance=e.importance.value,
-        status=e.status.value,
-        source=e.source,
-        source_url=e.source_url,
-        metadata=e.metadata,
-    ) for e in events]
+    return [e for e in events if e.symbol is not None]
 
 
 # News endpoint
@@ -490,22 +507,32 @@ async def get_leadership(symbol: str) -> dict:
         limit=10,
     )
     
+    from trading_copilot.providers.filing_provider import SECFilingProvider
+    provider = SECFilingProvider(event_store, user_agent=settings.sec_user_agent)
+    try:
+        state = provider.get_current_leadership(symbol)
+    finally:
+        provider.close()
     leadership = {}
-    for e in events:
-        changes = e.metadata.get("changes", [])
-        for change in changes:
-            role = change.get("role")
-            if role:
-                leadership[role] = {
-                    "name": change.get("name"),
-                    "effective_date": change.get("effective_date"),
-                    "event_id": e.event_id,
-                    "source": e.source,
-                }
+    for role in ["CEO", "CFO"]:
+        change = state.get(role)
+        if change:
+            evidence = next((e for e in events if e.source_id == change.get("source_id")), None)
+            leadership[role] = {
+                **change,
+                "event_id": evidence.event_id if evidence else None,
+                "released_at": evidence.released_at.isoformat() if evidence and evidence.released_at else None,
+                # Explicitly preserve provenance fields from provider
+                "source_url": change.get("source_url"),
+                "retrieved_at": change.get("retrieved_at"),
+                "filing_date": change.get("filing_date"),
+            }
     
     return {
         "symbol": symbol,
         "leadership": leadership,
+        "coverage": state["coverage"],
+        "as_of": state["as_of"],
     }
 
 
@@ -525,47 +552,33 @@ async def get_filings(
     return [e.model_dump() for e in events]
 
 
-# Insiders
-@app.get("/api/v1/stocks/{symbol}/insiders")
-async def get_insiders(
-    symbol: str,
-    limit: int = Query(50, ge=1, le=200),
-) -> list[dict]:
-    """Get insider transactions."""
-    symbol = symbol.upper()
-    events = event_store.events_for_symbol(
-        symbol=symbol,
-        event_types=[EventType.INSIDER],
-        limit=limit,
-    )
-    return [e.model_dump() for e in events]
-
-
 # Quant signals
 @app.get("/api/v1/stocks/{symbol}/quant")
-async def get_quant_signals(symbol: str) -> dict:
+def get_quant_signals(symbol: str) -> dict:
     """Get quant signals for a symbol."""
-    # TODO: Integrate with quant scanner
-    return {
-        "symbol": symbol.upper(),
-        "quant_score": None,
-        "components": {},
-        "rank": None,
-        "universe_size": None,
-    }
+    return market_adapter.quant(validate_symbol(symbol))
 
 
 # Quant scanner top N
 @app.get("/api/v1/scanner/top")
-async def get_scanner_top(
+def get_scanner_top(
     n: int = Query(20, ge=1, le=100),
 ) -> list[dict]:
     """Get top N symbols from quant scanner."""
-    # TODO: Implement using actual quant scanner
-    return []
+    return market_adapter.scan(n)
+
+
+@app.get("/api/v1/scanner/status")
+def get_scanner_status():
+    return market_adapter.status()
 
 
 # Term definition
+@app.get("/api/v1/terms/search")
+async def term_search(q: str = Query(..., min_length=2), limit: int = Query(10, ge=1, le=50)):
+    return get_term_service().search_terms(q)[:limit]
+
+
 @app.get("/api/v1/terms/{term}")
 async def get_term_definition(term: str) -> TermDefinition:
     """Get definition for a financial term."""
@@ -574,54 +587,6 @@ async def get_term_definition(term: str) -> TermDefinition:
     if not definition:
         raise HTTPException(404, f"Term '{term}' not found")
     return definition
-
-
-# Search terms
-@app.get("/api/v1/terms/search")
-async def search_terms(
-    q: str = Query(..., min_length=2),
-    limit: int = Query(10, ge=1, le=50),
-) -> list[TermDefinition]:
-    """Search for term definitions."""
-    term_service = get_term_service()
-    results = term_service.search_terms(q)
-    return results[:limit]
-
-
-# Macro events
-@app.get("/api/v1/events/macro")
-async def get_macro_events(
-    from_date: Optional[date] = Query(None),
-    to_date: Optional[date] = Query(None),
-    importance: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-) -> list[MacroEventResponse]:
-    events = event_store.events_by_type(EventType.MACRO, limit=1000)
-    
-    if from_date:
-        events = [e for e in events if e.released_at and e.released_at.date() >= from_date]
-    if to_date:
-        events = [e for e in events if e.released_at and e.released_at.date() <= to_date]
-    if importance:
-        events = [e for e in events if e.importance.value == importance]
-    
-    events.sort(key=lambda e: e.released_at or e.scheduled_at or datetime.min, reverse=True)
-    events = events[:limit]
-    
-    return [MacroEventResponse(
-        event_id=e.event_id,
-        title=e.title,
-        event_type=e.event_type.value,
-        scheduled_at=e.scheduled_at,
-        released_at=e.released_at,
-        actual=e.actual,
-        forecast=e.forecast,
-        previous=e.previous,
-        importance=e.importance.value,
-        status=e.status.value,
-        source=e.source,
-        source_url=e.source_url,
-    ) for e in events[:limit]]
 
 
 # Upcoming events (macro + company)
@@ -660,43 +625,9 @@ async def get_recent_events(
     return [e.model_dump() for e in events]
 
 
-# Terms search
-@app.get("/api/v1/terms/search")
-async def search_terms(
-    q: str = Query(..., min_length=2),
-    limit: int = Query(10, ge=1, le=50),
-) -> list[TermDefinition]:
-    """Search term definitions."""
-    term_service = get_term_service()
-    results = term_service.search_terms(q)
-    return results[:limit]
-
-
-# Search symbols (for autocomplete)
-@app.get("/api/v1/symbols/search")
-async def search_symbols(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(10, ge=1, le=50),
-) -> list[SymbolSearchResult]:
-    """Search symbols by ticker or name."""
-    # TODO: Implement search against universe
-    return []
-
-
-# Term definition
-@app.get("/api/v1/terms/{term}")
-async def get_term(term: str) -> TermDefinition:
-    """Get term definition."""
-    term_service = get_term_service()
-    definition = term_service.get_definition(term)
-    if not definition:
-        raise HTTPException(404, f"Term '{term}' not found")
-    return definition
-
-
 # Market data proxy (for charting)
 @app.get("/api/v1/market/bars/{symbol}")
-async def get_bars(
+def get_bars(
     symbol: str,
     timeframe: str = Query("1Day", pattern="^(1Min|5Min|15Min|1Hour|1Day|1Week|1Month)$"),
     start: Optional[date] = Query(None),
@@ -704,35 +635,9 @@ async def get_bars(
     limit: int = Query(500, ge=1, le=5000),
 ):
     """Get price bars for charting."""
-    # TODO: Implement using market data provider
-    return {
-        "symbol": symbol.upper(),
-        "timeframe": timeframe,
-        "bars": [],
-    }
-
-
-# Term definition endpoint
-@app.get("/api/v1/terms/{term}")
-async def get_term_definition(term: str) -> TermDefinition:
-    """Get term definition."""
-    term_service = get_term_service()
-    definition = term_service.get_definition(term)
-    if not definition:
-        raise HTTPException(404, f"Term '{term}' not found")
-    return definition
-
-
-# Term search
-@app.get("/api/v1/terms/search")
-async def search_terms(
-    q: str = Query(..., min_length=2),
-    limit: int = Query(10, ge=1, le=50),
-) -> list[TermDefinition]:
-    """Search term definitions."""
-    term_service = get_term_service()
-    results = term_service.search_terms(q)
-    return results[:limit]
+    if timeframe != "1Day":
+        raise HTTPException(400, "Only daily bars are supported by the current provider")
+    return market_adapter.bars(validate_symbol(symbol), start, end, limit)
 
 
 # Health check with detailed info
@@ -740,17 +645,14 @@ async def search_terms(
 async def detailed_health() -> dict:
     """Detailed health check."""
     return {
-        "status": "healthy",
+        "status": "degraded" if market_adapter.provider is None else "ready",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
         "database": "connected",
         "event_store": "connected",
-        "providers": {
-            "sec": "configured",
-            "macro": "configured",
-            "earnings": "configured",
-            "news": "configured",
-        },
+        "market": market_adapter.status(),
+        "providers": source_adapter.state,
+        "llm_enabled": False,
     }
 
 
@@ -855,9 +757,11 @@ async def remove_watchlist_item(watchlist_id: str, symbol: str):
 
 
 @app.post("/api/v1/watchlists/{watchlist_id}/reorder")
-async def reorder_watchlist_items(watchlist_id: str, symbols: list[str]):
+async def reorder_watchlist_items(watchlist_id: str, request: ReorderBody):
     """Reorder watchlist items."""
-    watchlist_service.reorder_items(watchlist_id, symbols)
+    if not watchlist_service.get_watchlist_with_items(watchlist_id):
+        raise HTTPException(404, "Watchlist not found")
+    watchlist_service.reorder_items(watchlist_id, request.symbols)
     return {"status": "ok"}
 
 
@@ -886,8 +790,8 @@ async def export_calendar_get(
     format: str = Query("ics", pattern="^ics$"),
     event_types: Optional[str] = Query(None),
     symbols: Optional[str] = Query(None),
-    from_date: Optional[str] = Query(None),
-    to_date: Optional[str] = Query(None),
+    from_date: Optional[datetime] = Query(None),
+    to_date: Optional[datetime] = Query(None),
     importance: Optional[str] = Query(None),
 ) -> CalendarExportResponse:
     """Export events to calendar format (.ics) via GET."""
@@ -898,8 +802,8 @@ async def export_calendar_get(
         format=CalendarExportFormat(format),
         event_types=event_types.split(",") if event_types else None,
         symbols=symbols.split(",") if symbols else None,
-        from_date=datetime.fromisoformat(from_date) if from_date else None,
-        to_date=datetime.fromisoformat(to_date) if to_date else None,
+        from_date=from_date,
+        to_date=to_date,
         importance=importance.split(",") if importance else None,
     )
     return calendar_service.export_events(request)
@@ -1006,4 +910,5 @@ async def acknowledge_all_alert_triggers(alert_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    host = os.environ.get("WEB_API_HOST", "127.0.0.1")
+    uvicorn.run(app, host=host, port=8000)

@@ -1,13 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useId } from 'react'
 
 export function Modal({
   isOpen,
   onClose,
   title,
   children,
-  size: _size = 'md',
+  size = 'md',
   closeOnOverlayClick = true,
-  closeOnEscape: _closeOnEscape = true,
+  closeOnEscape = true,
   showCloseButton = true,
 }: {
   isOpen: boolean
@@ -19,25 +19,42 @@ export function Modal({
   closeOnEscape?: boolean
   showCloseButton?: boolean
 }) {
-  // Refs not currently used but reserved for future portal/focus management
-  // const overlayRef = useRef<HTMLDivElement>(null)
-  // const contentRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  const titleId = useId()
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
   useEffect(() => {
     if (!isOpen) return
 
+    const previousFocus = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    const focusable = () => Array.from(contentRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? []).filter(el => !el.hidden && el.getAttribute('aria-hidden') !== 'true')
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && closeOnEscape) { event.preventDefault(); onCloseRef.current() }
+      if (event.key === 'Tab') {
+        const elements = focusable()
+        const first = elements[0], last = elements[elements.length - 1]
+        if (!first) { event.preventDefault(); contentRef.current?.focus() }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === contentRef.current)) { event.preventDefault(); last.focus() }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+      }
     }
-
+    const focusInside = (event: FocusEvent) => {
+      if (event.target instanceof Node && !contentRef.current?.contains(event.target)) (focusable()[0] ?? contentRef.current)?.focus()
+    }
+    ;(focusable()[0] ?? contentRef.current)?.focus()
     document.addEventListener('keydown', handleEscape)
+    document.addEventListener('focusin', focusInside)
     document.body.style.overflow = 'hidden'
 
     return () => {
       document.removeEventListener('keydown', handleEscape)
-      document.body.style.overflow = ''
+      document.removeEventListener('focusin', focusInside)
+      document.body.style.overflow = previousOverflow
+      if (previousFocus?.isConnected) previousFocus.focus()
     }
-  }, [isOpen, onClose])
+  }, [isOpen, closeOnEscape])
 
   if (!isOpen) return null
 
@@ -47,22 +64,23 @@ export function Modal({
       onClick={e => {
         if (e.target === e.currentTarget && closeOnOverlayClick) onClose()
       }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
     >
       <div
-        className="modal-container"
+        className={`modal-container modal-${size}`}
+        ref={contentRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={title ? titleId : undefined}
+        aria-label={title ? undefined : 'Dialog'}
       >
-        {title && (
+        {(title || showCloseButton) && (
           <div className="modal-header">
-            <h2 id="modal-title">{title}</h2>
+            {title && <h2 id={titleId}>{title}</h2>}
             {showCloseButton && (
               <button
                 className="modal-close"
+                type="button"
                 onClick={onClose}
                 aria-label="Close"
               >
@@ -104,23 +122,8 @@ export function ConfirmDialog({
   if (!isOpen) return null
 
   return (
-    <div className="modal-overlay" onClick={() => onClose()} role="dialog" aria-modal="true">
-      <div className="modal-dialog" role="document">
+    <Modal isOpen={isOpen} onClose={onClose} title={title}>
         <div className="modal-content">
-          <div className="modal-header">
-            <h3>{title}</h3>
-            <button
-              type="button"
-              className="modal-close"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
           <div className="modal-body">
             <p>{message}</p>
           </div>
@@ -138,8 +141,7 @@ export function ConfirmDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -173,6 +175,7 @@ export function Tooltip({
 }) {
   const [isVisible, setIsVisible] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }, [])
 
   const show = () => {
     timeoutRef.current = setTimeout(() => setIsVisible(true), delay)
@@ -224,24 +227,24 @@ export function Dropdown({
   }, [])
 
   return (
-    <div className="dropdown" ref={ref}>
+    <div className="dropdown" ref={ref} onKeyDown={e => { if (e.key === 'Escape') { setOpen(false); ref.current?.querySelector('button')?.focus() } }}>
       <button
         className="dropdown-trigger"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        aria-haspopup="true"
+        type="button"
       >
         {trigger}
       </button>
       {open && (
-        <div className={`dropdown-menu ${align === 'right' ? 'dropdown-menu-right' : ''}`} role="menu">
+        <div className={`dropdown-menu ${align === 'right' ? 'dropdown-menu-right' : ''}`}>
           {items.map((item, index) => (
             <button
               key={index}
               className={`dropdown-item ${item.danger ? 'danger' : ''} ${item.disabled ? 'disabled' : ''}`}
-              onClick={item.onClick}
+              onClick={() => { item.onClick(); setOpen(false) }}
               disabled={item.disabled}
-              role="menuitem"
+              type="button"
             >
               {item.icon && <span className="dropdown-item-icon">{item.icon}</span>}
               <span>{item.label}</span>
@@ -265,16 +268,19 @@ export function Tabs({
   variant?: 'line' | 'enclosed' | 'soft'
 }) {
   return (
-    <div className={`tabs tabs-${variant}`} role="tablist">
+    <div className={`tabs tabs-${variant}`} role="tablist" aria-label="Sections">
       {tabs.map(tab => (
         <button
           key={tab.id}
           role="tab"
+          type="button"
+          tabIndex={activeTab === tab.id ? 0 : -1}
           aria-selected={activeTab === tab.id}
           aria-controls={`panel-${tab.id}`}
           id={`tab-${tab.id}`}
           className={`tab ${activeTab === tab.id ? 'active' : ''} ${tab.disabled ? 'disabled' : ''}`}
           onClick={() => !tab.disabled && onChange(tab.id)}
+          onKeyDown={e => { const available = tabs.filter(t => !t.disabled); const index = available.findIndex(t => t.id === tab.id); const next = e.key === 'ArrowRight' ? available[(index + 1) % available.length] : e.key === 'ArrowLeft' ? available[(index + available.length - 1) % available.length] : e.key === 'Home' ? available[0] : e.key === 'End' ? available[available.length - 1] : undefined; if (next) { e.preventDefault(); onChange(next.id); document.getElementById(`tab-${next.id}`)?.focus() } }}
           disabled={tab.disabled}
         >
           {tab.icon && <span className="tab-icon">{tab.icon}</span>}
@@ -307,7 +313,7 @@ export function Badge({ children, variant = 'default', size = 'md' }: {
   }
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${variants[variant]} ${sizes[size]}`}>
+    <span className={`badge badge-${variant} badge-${size} inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${variants[variant]} ${sizes[size]}`}>
       {children}
     </span>
   )

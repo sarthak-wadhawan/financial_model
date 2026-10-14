@@ -39,6 +39,8 @@ class EarningsCalendarProvider(BaseProvider):
         fmp_api_key: str | None = None,
         polygon_api_key: str | None = None,
         twelve_data_api_key: str | None = None,
+        mode: str = "live",
+        fixture_dir: str | Path | None = None,
     ):
         super().__init__()
         self.event_store = event_store
@@ -52,6 +54,11 @@ class EarningsCalendarProvider(BaseProvider):
         self.fmp_api_key = fmp_api_key
         self.polygon_api_key = polygon_api_key
         self.twelve_data_api_key = twelve_data_api_key
+        if mode not in {"live", "demo"}:
+            raise ValueError("mode must be live or demo")
+        self.mode = mode
+        self.fixture_dir = Path(fixture_dir).resolve() if fixture_dir else Path(__file__).resolve().parents[3] / "tests/fixtures"
+        self.last_fetch_status: dict[str, Any] = {}
 
         # Base URLs
         self.alpha_vantage_url = "https://www.alphavantage.co/query"
@@ -82,11 +89,14 @@ class EarningsCalendarProvider(BaseProvider):
 
         Tries sources in order of preference until one succeeds.
         """
+        if self.mode == "demo":
+            self.last_fetch_status = {"status": "demo"}
+            return self._load_fixtures(symbols, from_date, to_date)
         available = self._get_available_sources()
 
         if not available:
-            logger.warning("No earnings calendar API keys configured, using fixtures")
-            return self._load_fixtures(symbols, from_date, to_date)
+            self.last_fetch_status = {"status": "unavailable", "reason": "no_configured_source"}
+            raise RuntimeError("No live earnings calendar source configured")
 
         # Try sources in order of preference
         for source in available:
@@ -102,16 +112,41 @@ class EarningsCalendarProvider(BaseProvider):
                 else:
                     continue
 
-                if events:
-                    logger.info(f"Fetched {len(events)} earnings events from {source}")
-                    return events
+                # A successfully parsed, scoped empty response is not a failure.
+                self.last_fetch_status = {"status": "ok" if events else "empty", "source": source, "count": len(events)}
+                return events
             except Exception as e:
-                logger.warning(f"Failed to fetch earnings from {source}: {e}")
+                # Exception messages can contain API keys embedded in HTTP URLs.
+                logger.warning("Earnings fetch failed for %s (%s)", source, type(e).__name__)
                 continue
 
-        # Fallback to fixtures
-        logger.info("All sources failed, using fixtures")
-        return self._load_fixtures(symbols, from_date, to_date)
+        self.last_fetch_status = {"status": "error", "reason": "all_configured_sources_failed"}
+        raise RuntimeError("All configured earnings calendar sources failed")
+
+    @staticmethod
+    def _calendar_timing(report_date: date, session: str = "unknown", exact_at: datetime | None = None) -> dict[str, Any]:
+        """Dates and BMO/AMC sessions are not exact announcement timestamps."""
+        session = (session or "unknown").lower()
+        session = session if session in {"bmo", "amc", "dmc"} else "unknown"
+        if exact_at is not None:
+            if exact_at.tzinfo is None or exact_at.utcoffset() is None:
+                raise ValueError("Exact earnings time requires a timezone")
+            precision = "exact"
+        else:
+            precision = "session" if session != "unknown" else "date"
+        return {
+            "event_date": report_date.isoformat(),
+            "time": session,
+            "session": session,
+            "scheduled_time_precision": precision,
+            "event_timezone": "America/New_York",
+            "scheduled_at": exact_at.astimezone(timezone.utc) if exact_at else None,
+        }
+
+    @staticmethod
+    def _estimate_provenance(source: str, source_url: str, retrieved_at: str) -> dict[str, Any]:
+        # Retrieval time is not the analyst consensus as-of time.
+        return {"estimate_source": source, "estimate_source_url": source_url, "retrieved_at": retrieved_at, "consensus_as_of": None, "estimate_verification": "provider_estimate_not_verified_consensus"}
 
     def _fetch_alpha_vantage(
         self,
@@ -135,11 +170,16 @@ class EarningsCalendarProvider(BaseProvider):
         import io
         content = resp.text
         reader = csv.DictReader(io.StringIO(content))
+        if not reader.fieldnames or not {"symbol", "reportDate"}.issubset(reader.fieldnames):
+            raise ValueError("Invalid Alpha Vantage earnings CSV (or API error)")
+        retrieved_at = datetime.now(timezone.utc).isoformat()
 
         events = []
         for row in reader:
             # Normalize to our format
             symbol = row.get("symbol", "").upper()
+            if not symbol:
+                raise ValueError("Earnings CSV row is missing a symbol")
             if symbols and symbol not in [s.upper() for s in symbols]:
                 continue
 
@@ -147,7 +187,7 @@ class EarningsCalendarProvider(BaseProvider):
             try:
                 report_date = datetime.strptime(row.get("reportDate", ""), "%Y-%m-%d").date()
             except (ValueError, TypeError):
-                continue
+                raise ValueError("Invalid Alpha Vantage earnings report date") from None
 
             if from_date and report_date < from_date:
                 continue
@@ -164,12 +204,12 @@ class EarningsCalendarProvider(BaseProvider):
                 "symbol": symbol,
                 "title": f"{symbol} Q{fiscal_quarter} FY{fiscal_year} Earnings",
                 "description": f"Estimated EPS: {estimate} {currency}",
-                "scheduled_at": datetime.combine(report_date, datetime.min.time()).replace(tzinfo=timezone.utc),
+                "scheduled_at": None,
                 "released_at": None,
                 "importance": EventImportance.HIGH,
                 "status": EventStatus.SCHEDULED,
                 "source": "alpha_vantage",
-                "source_url": "https://www.alphavantage.co",
+                "source_url": self.alpha_vantage_url + "?function=EARNINGS_CALENDAR",
                 "source_id": f"av_earnings_{symbol}_{report_date}",
                 "metadata": {
                     "event_subtype": "earnings",
@@ -178,6 +218,8 @@ class EarningsCalendarProvider(BaseProvider):
                     "estimate": estimate,
                     "currency": currency,
                     "time": "unknown",  # Alpha Vantage doesn't provide time
+                    **self._calendar_timing(report_date),
+                    **self._estimate_provenance("alpha_vantage", self.alpha_vantage_url + "?function=EARNINGS_CALENDAR", retrieved_at),
                 },
             })
 
@@ -204,8 +246,13 @@ class EarningsCalendarProvider(BaseProvider):
         resp = self.client.get(f"{self.fmp_url}/earning_calendar", params=params)
         resp.raise_for_status()
         data = resp.json()
+        if not isinstance(data, list):
+            raise ValueError("Invalid FMP earnings calendar response (or API error)")
+        retrieved_at = datetime.now(timezone.utc).isoformat()
 
         for item in data:
+            if not isinstance(item, dict) or not item.get("symbol"):
+                raise ValueError("Invalid FMP earnings row")
             symbol = item.get("symbol", "").upper()
             if symbols and symbol not in [s.upper() for s in symbols]:
                 continue
@@ -213,30 +260,22 @@ class EarningsCalendarProvider(BaseProvider):
             try:
                 report_date = datetime.strptime(item.get("date", ""), "%Y-%m-%d").date()
             except (ValueError, TypeError):
-                continue
+                raise ValueError("Invalid FMP earnings report date") from None
 
-            # Time: "bmo" (before market open), "amc" (after market close), or "dmc" (during market close)
-            time_str = item.get("time", "").lower()
-            if time_str == "bmo":
-                time_of_day = "bmo"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=13, minute=30, tzinfo=timezone.utc)  # 8:30 AM ET
-            elif time_str == "amc":
-                time_of_day = "amc"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=21, minute=0, tzinfo=timezone.utc)  # 4:00 PM ET
-            else:
-                time_of_day = "unknown"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            if from_date and report_date < from_date or to_date and report_date > to_date:
+                continue
+            timing = self._calendar_timing(report_date, item.get("time", "unknown"))
 
             events.append({
                 "symbol": symbol,
                 "title": f"{symbol} Q{item.get('quarter', '')} FY{item.get('year', '')} Earnings",
                 "description": f"Estimated EPS: {item.get('epsEstimated', 'N/A')}",
-                "scheduled_at": scheduled_time,
+                "scheduled_at": timing["scheduled_at"],
                 "released_at": None,
                 "importance": EventImportance.HIGH,
                 "status": EventStatus.SCHEDULED,
                 "source": "fmp",
-                "source_url": "https://financialmodelingprep.com",
+                "source_url": f"{self.fmp_url}/earning_calendar",
                 "source_id": f"fmp_earnings_{symbol}_{report_date}",
                 "metadata": {
                     "event_subtype": "earnings",
@@ -244,7 +283,8 @@ class EarningsCalendarProvider(BaseProvider):
                     "fiscal_year": item.get("year", ""),
                     "estimate": str(item.get("epsEstimated", "")),
                     "currency": "USD",
-                    "time": time_of_day,
+                    **timing,
+                    **self._estimate_provenance("fmp", f"{self.fmp_url}/earning_calendar", retrieved_at),
                 },
             })
 
@@ -270,8 +310,13 @@ class EarningsCalendarProvider(BaseProvider):
         resp = self.client.get(f"{self.polygon_url}/v2/reference/earnings", params=params)
         resp.raise_for_status()
         data = resp.json()
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list) or data.get("status") == "ERROR":
+            raise ValueError("Invalid Polygon earnings calendar response (or API error)")
+        retrieved_at = datetime.now(timezone.utc).isoformat()
 
         for item in data.get("results", []):
+            if not isinstance(item, dict) or not item.get("ticker"):
+                raise ValueError("Invalid Polygon earnings row")
             symbol = item.get("ticker", "").upper()
             if symbols and symbol not in [s.upper() for s in symbols]:
                 continue
@@ -279,29 +324,22 @@ class EarningsCalendarProvider(BaseProvider):
             try:
                 report_date = datetime.strptime(item.get("report_date", ""), "%Y-%m-%d").date()
             except (ValueError, TypeError):
-                continue
+                raise ValueError("Invalid Polygon earnings report date") from None
 
-            time_str = item.get("time", "").lower()
-            if time_str == "bmo":
-                time_of_day = "bmo"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=13, minute=30, tzinfo=timezone.utc)
-            elif time_str == "amc":
-                time_of_day = "amc"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=21, minute=0, tzinfo=timezone.utc)
-            else:
-                time_of_day = "unknown"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            if from_date and report_date < from_date or to_date and report_date > to_date:
+                continue
+            timing = self._calendar_timing(report_date, item.get("time", "unknown"))
 
             events.append({
                 "symbol": symbol,
                 "title": f"{symbol} Earnings",
                 "description": f"Estimated EPS: {item.get('eps_estimate', 'N/A')}",
-                "scheduled_at": scheduled_time,
+                "scheduled_at": timing["scheduled_at"],
                 "released_at": None,
                 "importance": EventImportance.HIGH,
                 "status": EventStatus.SCHEDULED,
                 "source": "polygon",
-                "source_url": "https://polygon.io",
+                "source_url": f"{self.polygon_url}/v2/reference/earnings",
                 "source_id": f"polygon_earnings_{symbol}_{report_date}",
                 "metadata": {
                     "event_subtype": "earnings",
@@ -309,7 +347,8 @@ class EarningsCalendarProvider(BaseProvider):
                     "fiscal_year": item.get("fiscal_year", ""),
                     "estimate": str(item.get("eps_estimate", "")),
                     "currency": "USD",
-                    "time": time_of_day,
+                    **timing,
+                    **self._estimate_provenance("polygon", f"{self.polygon_url}/v2/reference/earnings", retrieved_at),
                 },
             })
 
@@ -334,8 +373,13 @@ class EarningsCalendarProvider(BaseProvider):
         resp = self.client.get(f"{self.twelve_data_url}/earnings", params=params)
         resp.raise_for_status()
         data = resp.json()
+        if not isinstance(data, dict) or not isinstance(data.get("data"), list) or data.get("status") == "error":
+            raise ValueError("Invalid Twelve Data earnings calendar response (or API error)")
+        retrieved_at = datetime.now(timezone.utc).isoformat()
 
         for item in data.get("data", []):
+            if not isinstance(item, dict) or not item.get("symbol"):
+                raise ValueError("Invalid Twelve Data earnings row")
             symbol = item.get("symbol", "").upper()
             if symbols and symbol not in [s.upper() for s in symbols]:
                 continue
@@ -343,29 +387,22 @@ class EarningsCalendarProvider(BaseProvider):
             try:
                 report_date = datetime.strptime(item.get("report_date", ""), "%Y-%m-%d").date()
             except (ValueError, TypeError):
-                continue
+                raise ValueError("Invalid Twelve Data earnings report date") from None
 
-            time_str = item.get("time", "").lower()
-            if time_str == "bmo":
-                time_of_day = "bmo"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=13, minute=30, tzinfo=timezone.utc)
-            elif time_str == "amc":
-                time_of_day = "amc"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=21, minute=0, tzinfo=timezone.utc)
-            else:
-                time_of_day = "unknown"
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            if from_date and report_date < from_date or to_date and report_date > to_date:
+                continue
+            timing = self._calendar_timing(report_date, item.get("time", "unknown"))
 
             events.append({
                 "symbol": symbol,
                 "title": f"{symbol} Earnings",
                 "description": f"Estimated EPS: {item.get('eps_estimate', 'N/A')}",
-                "scheduled_at": scheduled_time,
+                "scheduled_at": timing["scheduled_at"],
                 "released_at": None,
                 "importance": EventImportance.HIGH,
                 "status": EventStatus.SCHEDULED,
                 "source": "twelve_data",
-                "source_url": "https://twelvedata.com",
+                "source_url": f"{self.twelve_data_url}/earnings",
                 "source_id": f"twelve_earnings_{symbol}_{report_date}",
                 "metadata": {
                     "event_subtype": "earnings",
@@ -373,7 +410,8 @@ class EarningsCalendarProvider(BaseProvider):
                     "fiscal_year": item.get("fiscal_year", ""),
                     "estimate": str(item.get("eps_estimate", "")),
                     "currency": "USD",
-                    "time": time_of_day,
+                    **timing,
+                    **self._estimate_provenance("twelve_data", f"{self.twelve_data_url}/earnings", retrieved_at),
                 },
             })
 
@@ -386,7 +424,7 @@ class EarningsCalendarProvider(BaseProvider):
         to_date: date | None,
     ) -> list[dict[str, Any]]:
         """Load earnings events from fixture file."""
-        fixture_path = Path("tests/fixtures/earnings_calendar.json")
+        fixture_path = self.fixture_dir / "earnings_calendar.json"
         if not fixture_path.exists():
             return []
 
@@ -409,24 +447,18 @@ class EarningsCalendarProvider(BaseProvider):
             if to_date and report_date > to_date:
                 continue
 
-            time_str = item.get("time", "unknown")
-            if time_str == "bmo":
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=13, minute=30, tzinfo=timezone.utc)
-            elif time_str == "amc":
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=21, minute=0, tzinfo=timezone.utc)
-            else:
-                scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            timing = self._calendar_timing(report_date, item.get("time", "unknown"))
 
             events.append({
                 "symbol": symbol,
                 "title": f"{symbol} Q{item.get('quarter', '')} FY{item.get('year', '')} Earnings",
                 "description": item.get("description", ""),
-                "scheduled_at": scheduled_time,
+                "scheduled_at": timing["scheduled_at"],
                 "released_at": None,
                 "importance": EventImportance.HIGH,
                 "status": EventStatus.SCHEDULED,
                 "source": "fixture",
-                "source_url": item.get("source_url", ""),
+                "source_url": fixture_path.as_uri(),
                 "source_id": f"fixture_earnings_{symbol}_{report_date}",
                 "metadata": {
                     "event_subtype": "earnings",
@@ -434,7 +466,12 @@ class EarningsCalendarProvider(BaseProvider):
                     "fiscal_year": item.get("year", ""),
                     "estimate": item.get("estimate", ""),
                     "currency": item.get("currency", "USD"),
-                    "time": item.get("time", "unknown"),
+                    **timing,
+                    "data_mode": "demo",
+                    "verification_state": "demo_fixture",
+                    "estimate_source": "fixture",
+                    "consensus_as_of": None,
+                    "estimate_verification": "demo_not_consensus",
                 },
             })
 
@@ -442,6 +479,13 @@ class EarningsCalendarProvider(BaseProvider):
 
     def _create_market_event(self, event_data: dict[str, Any]) -> MarketEvent:
         """Create a MarketEvent from fetched earnings data."""
+        metadata = dict(event_data.get("metadata", {}))
+        if event_data.get("scheduled_at") is not None:
+            scheduled_at = event_data["scheduled_at"]
+            if scheduled_at.tzinfo is None or scheduled_at.utcoffset() is None:
+                raise ValueError("Exact earnings time requires a timezone")
+            metadata.setdefault("scheduled_time_precision", "exact")
+            metadata.setdefault("scheduled_time_source", "explicit_source_timestamp")
         return MarketEvent(
             event_type=EventType.EARNINGS,
             symbol=event_data.get("symbol"),
@@ -459,7 +503,7 @@ class EarningsCalendarProvider(BaseProvider):
             source=event_data.get("source", "earnings_calendar"),
             source_url=event_data.get("source_url"),
             source_id=event_data.get("source_id"),
-            metadata=event_data.get("metadata", {}),
+            metadata=metadata,
         )
 
     def refresh(
@@ -481,7 +525,12 @@ class EarningsCalendarProvider(BaseProvider):
 
         counts = {"NEW": 0, "UNCHANGED": 0, "CHANGED": 0, "ERROR": 0}
 
-        events = self.fetch_earnings_calendar(symbols, from_date, to_date)
+        try:
+            events = self.fetch_earnings_calendar(symbols, from_date, to_date)
+        except Exception as exc:
+            logger.warning("Earnings calendar refresh failed (%s)", type(exc).__name__)
+            counts["ERROR"] += 1
+            return counts
         for event_data in events:
             try:
                 event = self._create_market_event(event_data)
@@ -516,16 +565,20 @@ class EarningsCalendarProvider(BaseProvider):
         for e in events:
             if e.scheduled_at and start <= e.scheduled_at <= end:
                 filtered.append(e)
+            elif not e.scheduled_at and e.metadata.get("event_date"):
+                event_date = date.fromisoformat(e.metadata["event_date"])
+                if start.date() <= event_date <= end.date():
+                    filtered.append(e)
 
-        return sorted(filtered, key=lambda x: x.scheduled_at or datetime.max.replace(tzinfo=timezone.utc))
+        return sorted(filtered, key=lambda e: e.metadata.get("event_date") or (e.scheduled_at.date().isoformat() if e.scheduled_at else "9999-12-31"))
 
     def close(self) -> None:
         """Close HTTP client."""
         self.client.close()
 
     def health_check(self) -> bool:
-        """Check if provider is available."""
-        return True
+        """Availability requires a successful live fetch; demo is not readiness."""
+        return self.last_fetch_status.get("status") in {"ok", "empty"}
 
 
 if __name__ == "__main__":

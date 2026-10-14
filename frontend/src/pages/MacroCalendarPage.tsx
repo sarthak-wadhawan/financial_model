@@ -1,15 +1,15 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
-import { format } from 'date-fns'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Badge, Tabs } from '../components/ui'
+import { api } from '../services/api'
+import { DataStatus, displayDate, SourceLink } from '../components/ui/ResearchData'
 import type { MacroEventResponse } from '../services/api'
 
 export function MacroCalendarPage() {
-  const { data: events, isLoading } = useQuery({
+  const { data: events, isLoading, isError, refetch } = useQuery({
     queryKey: ['macroEvents', 'all'],
-    queryFn: () => fetch('/api/v1/events/macro?limit=100').then(r => r.json()),
+    queryFn: () => api.getMacroEvents({ limit: 100 }),
     staleTime: 1000 * 60 * 5,
   })
 
@@ -19,8 +19,8 @@ export function MacroCalendarPage() {
 
   const filteredEvents = useMemo(() => {
     return events?.filter((e: MacroEventResponse) => {
-      if (filterImportance !== 'all' && e.importance !== filterImportance) return false
-      if (filterType !== 'all' && e.event_type !== filterType) return false
+      if (filterImportance !== 'all' && e.importance.toUpperCase() !== filterImportance) return false
+      if (filterType !== 'all' && e.event_type.toUpperCase() !== filterType) return false
       return true
     }) || []
   }, [events, filterImportance, filterType])
@@ -29,9 +29,9 @@ export function MacroCalendarPage() {
     const base = filteredEvents
     switch (activeTab) {
       case 'upcoming':
-        return base.filter((e: MacroEventResponse) => e.status === 'SCHEDULED' || e.status === 'UPDATED')
+        return base.filter((e: MacroEventResponse) => !e.released_at && ['SCHEDULED', 'UPDATED'].includes(e.status.toUpperCase()))
       case 'recent':
-        return base.filter((e: MacroEventResponse) => e.status === 'RELEASED')
+        return base.filter((e: MacroEventResponse) => !!e.released_at || e.status.toUpperCase() === 'RELEASED')
       default:
         return base
     }
@@ -52,6 +52,7 @@ export function MacroCalendarPage() {
         <div className="filter-group">
           <label htmlFor="importance-filter">Importance</label>
           <select
+            id="importance-filter"
             value={filterImportance}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilterImportance(e.target.value)}
             className="filter-select"
@@ -66,6 +67,7 @@ export function MacroCalendarPage() {
         <div className="filter-group">
           <label htmlFor="type-filter">Event Type</label>
           <select
+            id="type-filter"
             value={filterType}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilterType(e.target.value)}
             className="filter-select"
@@ -84,6 +86,8 @@ export function MacroCalendarPage() {
         </div>
       </div>
 
+      <DataStatus error={isError} label="macro events" />
+      {isError && <button className="btn btn-secondary" onClick={() => refetch()}>Retry macro events</button>}
       <div className="calendar-view">
         <div className="calendar-tabs">
           <Tabs
@@ -97,49 +101,47 @@ export function MacroCalendarPage() {
           />
         </div>
 
-        <div className="events-table-container">
+        <div className="events-table-container" id={`panel-${activeTab}`} role="tabpanel" aria-labelledby={`tab-${activeTab}`} tabIndex={0}>
           <table className="events-table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Event</th>
-                <th>Type</th>
-                <th>Actual</th>
-                <th>Forecast</th>
-                <th>Previous</th>
-                <th>Importance</th>
-                <th>Status</th>
-                <th>Source</th>
+                <th scope="col">Date</th>
+                <th scope="col">Event</th>
+                <th scope="col">Type</th>
+                <th scope="col">Actual</th>
+                <th scope="col">Forecast</th>
+                <th scope="col">Previous</th>
+                <th scope="col">Importance</th>
+                <th scope="col">Status</th>
+                <th scope="col">Source</th>
               </tr>
             </thead>
             <tbody>
-              {getFilteredEvents().map((event: any) => (
+              {getFilteredEvents.map((event) => (
                 <tr key={event.event_id}>
                   <td>
                     <span className="event-date">
-                      {event.scheduled_at ? format(new Date(event.scheduled_at), 'MMM d, yyyy') : '-'}
-                      {event.scheduled_at && event.released_at && (
+                      {displayDate(event.scheduled_at)}
+                      {event.released_at && (
                         <span className="release-time">
-                          {format(new Date(event.released_at), 'HH:mm')}
+                          Released (as supplied): {event.released_at}
                         </span>
                       )}
                     </span>
                   </td>
                   <td>
-                    <Link to={`/search?q=${encodeURIComponent(event.title)}`} className="event-title-link">
-                      {event.title}
-                    </Link>
+                    {event.title}
                   </td>
                   <td>
                     <Badge variant={getTypeBadgeVariant(event.event_type)}>
                       {event.event_type}
                     </Badge>
                   </td>
-                  <td className={event.actual ? (event.forecast ? (parseFloat(event.actual) > parseFloat(event.forecast) ? 'positive' : 'negative') : '') : ''}>
-                    {event.actual || '-'}
+                  <td>
+                    {event.actual ?? 'Unknown'}
                   </td>
-                  <td>{event.forecast || '-'}</td>
-                  <td>{event.previous || '-'}</td>
+                  <td>{event.forecast ?? 'Unknown'}</td>
+                  <td>{event.previous ?? 'Unknown'}</td>
                   <td>
                     <Badge variant={getImportanceBadgeVariant(event.importance)}>
                       {event.importance}
@@ -151,9 +153,8 @@ export function MacroCalendarPage() {
                     </Badge>
                   </td>
                   <td>
-                    <a href={event.source_url} target="_blank" rel="noopener noreferrer" className="source-link">
-                      {event.source}
-                    </a>
+                    <SourceLink url={event.source_url}>{event.source}</SourceLink>
+                    {/(test|fixture|mock|demo)/i.test(event.source) && <small> — test/demo provenance, not live</small>}
                   </td>
                 </tr>
               ))}
@@ -161,7 +162,7 @@ export function MacroCalendarPage() {
           </table>
         </div>
 
-        {(!events || events.length === 0) && (
+        {!isError && getFilteredEvents.length === 0 && (
           <div className="empty-state">
             <div className="empty-state-icon">📅</div>
             <h3>No events found</h3>
@@ -205,7 +206,7 @@ export function MacroCalendarPage() {
 }
 
 function getImportanceBadgeVariant(importance: string) {
-  switch (importance) {
+  switch (importance.toUpperCase()) {
     case 'CRITICAL': return 'error'
     case 'HIGH': return 'warning'
     case 'MEDIUM': return 'secondary'
@@ -214,7 +215,7 @@ function getImportanceBadgeVariant(importance: string) {
 }
 
 function getStatusBadgeVariant(status: string) {
-  switch (status) {
+  switch (status.toUpperCase()) {
     case 'RELEASED': return 'success'
     case 'SCHEDULED': return 'secondary'
     case 'UPDATED': return 'warning'
@@ -243,7 +244,7 @@ function getTypeBadgeVariant(type: string) {
     'DURABLE_GOODS': 'secondary',
     'TRADE_BALANCE': 'secondary',
   }
-  return typeMap[type] || 'default'
+  return typeMap[type.toUpperCase()] || 'default'
 }
 
 export default MacroCalendarPage

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { SourceLink } from '../ui/ResearchData'
 
 export function Footer() {
   return (
@@ -20,12 +21,12 @@ export function Footer() {
           <h4>Data Sources</h4>
           <nav aria-label="Data sources">
             <ul>
-              <li><a href="https://www.sec.gov/edgar" target="_blank" rel="noopener noreferrer">SEC EDGAR</a></li>
-              <li><a href="https://www.bls.gov" target="_blank" rel="noopener noreferrer">BLS</a></li>
-              <li><a href="https://www.federalreserve.gov" target="_blank" rel="noopener noreferrer">Federal Reserve</a></li>
-              <li><a href="https://www.bea.gov" target="_blank" rel="noopener noreferrer">BEA</a></li>
-              <li><a href="https://www.census.gov" target="_blank" rel="noopener noreferrer">Census Bureau</a></li>
-              <li><a href="https://alpaca.markets" target="_blank" rel="noopener noreferrer">Alpaca Markets</a></li>
+              <li><SourceLink url="https://www.sec.gov/edgar">SEC EDGAR</SourceLink></li>
+              <li><SourceLink url="https://www.bls.gov">BLS</SourceLink></li>
+              <li><SourceLink url="https://www.federalreserve.gov">Federal Reserve</SourceLink></li>
+              <li><SourceLink url="https://www.bea.gov">BEA</SourceLink></li>
+              <li><SourceLink url="https://www.census.gov">Census Bureau</SourceLink></li>
+              <li><SourceLink url="https://alpaca.markets">Alpaca Markets</SourceLink></li>
             </ul>
           </nav>
         </div>

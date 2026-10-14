@@ -1,7 +1,7 @@
 """Calendar models for .ics export."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -29,11 +29,11 @@ class CalendarEvent(BaseModel):
 class CalendarExportRequest(BaseModel):
     """Request for calendar export."""
     format: CalendarExportFormat = CalendarExportFormat.ICS
-    event_types: Optional[List[str]] = None
-    symbols: Optional[List[str]] = None
-    from_date: Optional[datetime] = None
-    to_date: Optional[datetime] = None
-    importance: Optional[List[str]] = None
+    event_types: Optional[List[str]] = Field(default=None, max_length=50)
+    symbols: Optional[List[str]] = Field(default=None, max_length=50)
+    from_date: Optional[datetime | date] = None
+    to_date: Optional[datetime | date] = None
+    importance: Optional[List[str]] = Field(default=None, max_length=50)
 
 
 class CalendarExportResponse(BaseModel):
@@ -42,3 +42,4 @@ class CalendarExportResponse(BaseModel):
     content: str
     filename: str
     event_count: int
+    skipped_event_count: int = 0

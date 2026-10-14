@@ -1,569 +1,124 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { format } from 'date-fns'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
-import type {
-  Interpretation,
-  EarningsEvent,
-  CompanyEvent,
-  NewsEvent,
-  InsiderTransaction,
-  LeadershipData,
-  Filing,
-  QuantSignals,
-} from '../services/api'
-import {
-  SkeletonCard,
-  SkeletonText,
-} from '../components/ui/LoadingSpinner'
+import type { Interpretation } from '../services/api'
 import { Badge } from '../components/ui'
+import { DataStatus, displayDate, displayNumber, record, SourceLink, Term, text } from '../components/ui/ResearchData'
+
+const tabs = ['overview', 'earnings', 'events', 'news', 'insiders', 'leadership', 'filings', 'quant']
 
 export function StockPage() {
-  const { symbol } = useParams<{ symbol: string }>()
+  const { symbol: routeSymbol } = useParams<{ symbol: string }>()
+  const symbol = routeSymbol?.toUpperCase() ?? ''
   const [activeTab, setActiveTab] = useState('overview')
-
-  const { data: interpretation, isLoading: interpLoading } = useQuery({
-    queryKey: ['interpretation', symbol],
-    queryFn: () => api.getInterpretation(symbol!),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 5,
-  })
-
-  const { data: earnings, isLoading: earningsLoading } = useQuery({
-    queryKey: ['earnings', symbol],
-    queryFn: () => api.getEarnings(symbol!),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 5,
-  })
-
-  const { data: events, isLoading: eventsLoading } = useQuery({
-    queryKey: ['events', symbol],
-    queryFn: () => api.getEvents(symbol!, undefined, 50),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 5,
-  })
-
-  const { data: news, isLoading: newsLoading } = useQuery({
-    queryKey: ['news', symbol],
-    queryFn: () => api.getNews(symbol!, 20),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 5,
-  })
-
-  const { data: insiders, isLoading: insidersLoading } = useQuery({
-    queryKey: ['insiders', symbol],
-    queryFn: () => api.getInsiders(symbol!, 50),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 60,
-  })
-
-  const { data: leadership, isLoading: leadershipLoading } = useQuery({
-    queryKey: ['leadership', symbol],
-    queryFn: () => api.getLeadership(symbol!),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 60,
-  })
-
-  const { data: filings, isLoading: filingsLoading } = useQuery({
-    queryKey: ['filings', symbol],
-    queryFn: () => api.getFilings(symbol!, 20),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 60,
-  })
-
-  const { data: quant, isLoading: quantLoading } = useQuery({
-    queryKey: ['quant', symbol],
-    queryFn: () => api.getQuantSignals(symbol!),
-    enabled: !!symbol,
-    staleTime: 1000 * 60 * 5,
-  })
-
-  if (!symbol) return <div>No symbol specified</div>
-
-  return (
-    <div className="stock-page">
-      <div className="stock-header">
-        <div className="stock-header-main">
-          <div className="stock-identity">
-            <h1>{symbol.toUpperCase()}</h1>
-            <span className="stock-exchange">NASDAQ</span>
-          </div>
-          <div className="stock-price">
-            <span className="current-price">$-</span>
-            <span className="price-change neutral">-</span>
-          </div>
-        </div>
-        <div className="stock-nav">
-          <nav className="stock-tabs" role="tablist" aria-label="Stock sections">
-            {['overview', 'earnings', 'events', 'news', 'insiders', 'leadership', 'filings', 'quant'].map((tab) => {
-              return (
-                <button
-                  key={tab}
-                  role="tab"
-                  aria-selected={activeTab === tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`tab ${activeTab === tab ? 'active' : ''}`}
-                >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              )
-            })}
-          </nav>
-        </div>
-      </div>
-
-      <main className="stock-content">
-        {activeTab === 'overview' && <OverviewTab interpretation={interpretation} loading={interpLoading} />}
-        {activeTab === 'earnings' && <EarningsTab earnings={earnings} loading={earningsLoading} />}
-        {activeTab === 'events' && <EventsTab events={events} loading={eventsLoading} />}
-        {activeTab === 'news' && <NewsTab news={news} loading={newsLoading} />}
-        {activeTab === 'insiders' && <InsidersTab insiders={insiders} loading={insidersLoading} />}
-        {activeTab === 'leadership' && <LeadershipTab leadership={leadership} loading={leadershipLoading} />}
-        {activeTab === 'filings' && <FilingsTab filings={filings} loading={filingsLoading} />}
-        {activeTab === 'quant' && <QuantTab quant={quant} loading={quantLoading} />}
-      </main>
+  const detail = useQuery({ queryKey: ['stockDetail', symbol], queryFn: () => api.getStockDetail(symbol), enabled: !!symbol })
+  const interpretation = useQuery({ queryKey: ['interpretation', symbol], queryFn: () => api.getInterpretation(symbol), enabled: !!symbol })
+  const bars = useQuery({ queryKey: ['stockBars', symbol], queryFn: () => api.getBars(symbol, '1Day', undefined, undefined, 20), enabled: !!symbol })
+  const section = useQuery<unknown>({ queryKey: ['stockSection', symbol, activeTab], enabled: !!symbol && activeTab !== 'overview', queryFn: () => {
+    switch (activeTab) {
+      case 'earnings': return api.getEarnings(symbol)
+      case 'events': return api.getEvents(symbol, undefined, 50)
+      case 'news': return api.getNews(symbol, 20)
+      case 'insiders': return api.getInsiders(symbol, 50)
+      case 'leadership': return api.getLeadership(symbol)
+      case 'filings': return api.getFilings(symbol, 20)
+      default: return api.getQuantSignals(symbol)
+    }
+  } })
+  const stock = record(detail.data), priceData = record(stock.price_data)
+  const history = record(bars.data)
+  if (!symbol) return <div className="empty-state">No symbol specified.</div>
+  return <div className="stock-page">
+    <div className="stock-header"><div className="stock-header-main"><div className="stock-identity"><h1>{symbol}</h1><span className="stock-exchange">{text(stock.name, 'Company name unavailable')} · {text(stock.exchange, 'Exchange unavailable')}</span></div><div className="stock-price"><span className="current-price">{typeof stock.price === 'number' ? `$${displayNumber(stock.price, 2)}` : 'Price unavailable'}</span><span className="price-change neutral">Daily change: {typeof stock.change_pct === 'number' ? `${displayNumber(stock.change_pct, 2)}%` : 'Unavailable'}</span></div></div>
+      <DataStatus loading={detail.isLoading} error={detail.isError} label="company details and daily close" />
+      <p className="data-status">Latest completed daily close, not a live quote. <Provenance data={priceData} /></p>
+      <nav className="stock-tabs" role="tablist" aria-label="Stock sections">{tabs.map(tab => <button key={tab} type="button" role="tab" id={`stock-tab-${tab}`} aria-controls="stock-panel" aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)} onKeyDown={e => {
+        const i = tabs.indexOf(tab)
+        const next = e.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length] : e.key === 'ArrowLeft' ? tabs[(i + tabs.length - 1) % tabs.length] : e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs[tabs.length - 1] : null
+        if (next) { e.preventDefault(); setActiveTab(next); document.getElementById(`stock-tab-${next}`)?.focus() }
+      }}>{tab.charAt(0).toUpperCase() + tab.slice(1)}</button>)}</nav>
     </div>
-  )
-}
-
-function OverviewTab({ interpretation, loading }: { interpretation: Interpretation | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><div className="skeleton-card" /><div className="skeleton-card" /></div>
-
-  if (!interpretation) return <div className="empty-state">No interpretation available</div>
-
-  return (
-    <div className="tab-content overview-tab">
-      <section className="section what-you-need-to-know">
-        <h2>What You Need to Know</h2>
-        <div className="key-points">
-          <div className="key-point">
-            <span className="kp-label">Headline</span>
-            <span className="kp-value">{interpretation?.headline || '-'}</span>
-          </div>
-          <div className="key-point">
-            <span className="kp-label">What Happened</span>
-            <span className="kp-value">{interpretation?.what_happened || '-'}</span>
-          </div>
-          <div className="key-point">
-            <span className="kp-label">What It Means</span>
-            <span className="kp-value">{interpretation?.what_it_means || '-'}</span>
-          </div>
-          <div className="key-point">
-            <span className="kp-label">Why It Matters</span>
-            <span className="kp-value">{interpretation?.why_it_matters || '-'}</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="section impact-section">
-        <div className="impact-grid">
-          <div className="impact-card company-impact">
-            <h3>Company Impact</h3>
-            <div className="impact-badge">
-              <Badge variant={getImpactVariant(interpretation?.company_impact?.direction)}>
-                {interpretation?.company_impact?.direction || 'unknown'}
-              </Badge>
-              <span className="impact-magnitude">({interpretation?.company_impact?.magnitude || 'unknown'})</span>
-            </div>
-            <p className="impact-horizon">Horizon: {interpretation?.company_impact?.horizon || 'unknown'}</p>
-            <p className="impact-confidence">Confidence: {(interpretation?.company_impact?.confidence * 100).toFixed(0)}%</p>
-            {interpretation?.company_impact?.reasons?.length > 0 && (
-              <ul className="reasons-list">
-                {interpretation.company_impact.reasons.map((reason: string, i: number) => (
-                  <li key={i}>{reason}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="impact-card stock-impact">
-            <h3>Stock Impact</h3>
-            <div className="impact-badge">
-              <Badge variant={getStockVariant(interpretation?.stock_impact?.bias)}>
-                {interpretation?.stock_impact?.bias || 'unknown'}
-              </Badge>
-              <span className="impact-magnitude">({interpretation?.stock_impact?.magnitude || 'unknown'})</span>
-            </div>
-            <p className="impact-horizon">Horizon: {interpretation?.stock_impact?.horizon || 'unknown'}</p>
-            <p className="impact-confidence">Confidence: {(interpretation?.stock_impact?.confidence * 100).toFixed(0)}%</p>
-            {interpretation?.stock_impact?.reasons?.length > 0 && (
-              <ul className="reasons-list">
-                {interpretation.stock_impact.reasons.map((reason: string, i: number) => (
-                  <li key={i}>{reason}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="section scenarios-section">
-        <h2>Scenario Analysis</h2>
-        <div className="scenarios-grid">
-          <ScenarioCard scenario={interpretation?.base_case} variant="base" />
-          <ScenarioCard scenario={interpretation?.bull_case} variant="bull" />
-          <ScenarioCard scenario={interpretation?.bear_case} variant="bear" />
-        </div>
-      </section>
-
-      <section className="section view-change-section">
-        <h2>What Would Change the View?</h2>
-        <div className="triggers-list">
-          {interpretation?.what_would_change_view?.map((trigger: { trigger: string; description: string }, i: number) => (
-            <div key={i} className="trigger-item">
-              <strong>{trigger.trigger}</strong>
-              <p>{trigger.description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="section confidence-section">
-        <h2>Confidence Assessment</h2>
-        <div className="confidence-display">
-          <div className="confidence-score">{(interpretation?.confidence * 100).toFixed(0)}%</div>
-          <div className="confidence-factors">
-            {interpretation?.confidence_reasons?.map((r: string, i: number) => (
-              <div key={i} className="confidence-factor">{r}</div>
-            ))}
-          </div>
-          {interpretation?.missing_information?.length > 0 && (
-            <div className="missing-info">
-              <h4>Missing Information:</h4>
-              <ul>
-                {interpretation.missing_information.map((m: string, i: number) => (
-                  <li key={i}>{m}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="section evidence-section">
-        <h2>Supporting Evidence</h2>
-        <div className="evidence-list">
-          {interpretation?.supporting_evidence?.map((ev: { source_type: string; url: string; description: string; timestamp: string }, i: number) => (
-            <div key={i} className="evidence-item">
-              <span className="evidence-source">{ev.source_type}</span>
-              <a href={ev.url} target="_blank" rel="noopener noreferrer" className="evidence-link">
-                {ev.description}
-              </a>
-              <span className="evidence-time">{ev.timestamp ? new Date(ev.timestamp).toLocaleString() : ''}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function EarningsTab({ earnings, loading }: { earnings: EarningsEvent[] | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
-  if (!earnings?.length) return <div className="empty-state">No earnings data available</div>
-
-  return (
-    <div className="tab-content earnings-tab">
-      <div className="earnings-history">
-        {earnings.map((e: EarningsEvent) => (
-    <div key={e.event_id} className="earnings-card">
-      <div className="earnings-header">
-        <span className="earnings-period">{e.metadata?.fiscal_quarter} {e.metadata?.fiscal_year}</span>
-        <span className="earnings-date">{format(new Date(e.released_at), 'MMM d, yyyy')}</span>
-      </div>
-      <div className="earnings-metrics">
-        <div className="metric">
-          <span className="metric-label">EPS Actual</span>
-          <span className="metric-value">{e.metadata?.eps_actual || '-'}</span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">EPS Consensus</span>
-          <span className="metric-value">{e.metadata?.eps_consensus || '-'}</span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">EPS Surprise</span>
-          <span className={`metric-value ${e.metadata?.eps_surprise && parseFloat(e.metadata.eps_surprise) > 0 ? 'positive' : e.metadata?.eps_surprise && parseFloat(e.metadata.eps_surprise) < 0 ? 'negative' : ''}`}>
-            {e.metadata?.eps_surprise ? (parseFloat(e.metadata.eps_surprise) > 0 ? '+' : '') + e.metadata.eps_surprise : '-'}
-          </span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">Revenue</span>
-          <span className="metric-value">{e.metadata?.revenue_actual ? formatNumber(e.metadata.revenue_actual) : '-'}</span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">Rev Consensus</span>
-          <span className="metric-value">{e.metadata?.revenue_consensus ? formatNumber(e.metadata.revenue_consensus) : '-'}</span>
-        </div>
-        <div className="metric">
-          <span className="metric-label">Rev Surprise</span>
-          <span className={`metric-value ${e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) > 0 ? 'positive' : e.metadata?.revenue_surprise && parseFloat(e.metadata.revenue_surprise) < 0 ? 'negative' : ''}`}>
-            {e.metadata?.revenue_surprise ? (parseFloat(e.metadata.revenue_surprise) > 0 ? '+' : '') + formatNumber(parseFloat(e.metadata.revenue_surprise)) : '-'}
-          </span>
-        </div>
-      </div>
-      {e.metadata?.guidance_change && (
-        <div className="guidance-change">
-          <span className="guidance-badge">{e.metadata.guidance_change}</span>
-          {e.metadata?.guidance_details && (
-            <div className="guidance-details">
-              <span>EPS: {e.metadata.guidance_details?.eps_guidance_low} - {e.metadata.guidance_details?.eps_guidance_high}</span>
-              <span>Rev: {e.metadata.guidance_details?.revenue_guidance_low} - {e.metadata.guidance_details?.revenue_guidance_high}</span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  ))}
+    <div className="stock-content" id="stock-panel" role="tabpanel" aria-labelledby={`stock-tab-${activeTab}`} tabIndex={0}>
+      {activeTab === 'overview' ? <>
+        <DataStatus loading={interpretation.isLoading} error={interpretation.isError} empty={interpretation.isSuccess && !interpretation.data} label="Phase 9 interpretation" />
+        {interpretation.data && <Overview interpretation={interpretation.data} />}
+        <details className="section price-history"><summary>Price history — provider bars</summary><p className="data-status"><Provenance data={history} /></p><DataStatus loading={bars.isLoading} error={bars.isError} empty={bars.isSuccess && !bars.data?.bars?.length} label="price bars; no chart is inferred from missing data" />{!!bars.data?.bars?.length && <><PriceChart bars={bars.data.bars} /><div className="table-container" tabIndex={0} role="region" aria-label="Daily price history"><table><caption>Daily closes; source calendar dates</caption><thead><tr><th scope="col">Date</th><th scope="col">Close</th><th scope="col">Volume</th></tr></thead><tbody>{bars.data.bars.map(bar => <tr key={bar.t}><td>{displayDate(bar.t)}</td><td>{displayNumber(bar.c, 2)}</td><td>{displayNumber(bar.v, 0)}</td></tr>)}</tbody></table></div></>}</details>
+        <AnswerForm key={symbol} symbol={symbol} />
+      </> : <>
+        <DataStatus loading={section.isLoading} error={section.isError} label={`${activeTab} data`} />
+        {section.isError && <button className="btn btn-secondary" onClick={() => section.refetch()}>Retry {activeTab}</button>}
+        {section.isSuccess && (activeTab === 'leadership' ? <Leadership data={section.data} /> : activeTab === 'quant' ? <Quant data={section.data} /> : <EventList data={section.data} label={activeTab} />)}
+      </>}
     </div>
   </div>
-)
 }
 
-function EventsTab({ events, loading }: { events: CompanyEvent[] | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><div className="skeleton-card" /><div className="skeleton-card" /></div>
-  if (!events?.length) return <div className="empty-state">No events found</div>
-
-  return (
-    <div className="tab-content events-tab">
-      <div className="events-list">
-        {events.map((e: CompanyEvent) => (
-    <div key={e.event_id} className="event-item">
-      <div className="event-header">
-        <span className="event-type-badge">{e.event_type}</span>
-        <span className="event-time">{e.released_at ? format(new Date(e.released_at), 'MMM d, yyyy HH:mm') : 'Pending'}</span>
-      </div>
-      <Link to={`/stocks/${e.symbol}`} className="event-title-link">
-        <h4>{e.title}</h4>
-      </Link>
-      <p className="event-description">{e.description?.substring(0, 300)}...</p>
-      <div className="event-meta">
-        <span className="event-source">{e.source}</span>
-        <span className="event-importance">{e.importance}</span>
-      </div>
-    </div>
-))}
-      </div>
-    </div>
-  )
+function Overview({ interpretation: i }: { interpretation: Interpretation }) {
+  return <div className="tab-content overview-tab">
+    <section className="section what-you-need-to-know"><h2>What You Need to Know</h2><p className="data-status">Deterministic Phase 9 interpretation · As of {displayDate(i.as_of)} · Not a trading instruction.</p><p>Learn the terms: <Term term="guidance">Guidance</Term> · <Term term="EPS">EPS</Term> · <Term term="volatility">Volatility</Term></p><div className="key-points">{[['Headline', i.headline], ['What Happened', i.what_happened], ['What It Means', i.what_it_means], ['Why It Matters', i.why_it_matters]].map(([label, value]) => <div className="key-point" key={label}><h3 className="kp-label">{label}</h3><p className="kp-value">{value || 'Unavailable'}</p></div>)}</div></section>
+    <section className="section impact-section"><h2>Company ≠ stock impact</h2><div className="impact-grid">
+      <Impact title="Company Impact" data={record(i.company_impact)} direction={i.company_impact?.direction} />
+      <Impact title="Stock Impact" data={record(i.stock_impact)} direction={i.stock_impact?.bias} />
+    </div></section>
+    <section className="section scenarios-section"><h2>Scenario Analysis</h2><p>Conditional views, not price forecasts. Any probability band comes from Phase 9, not an estimate by this page.</p><div className="scenarios-grid">{[['base', i.base_case], ['bull', i.bull_case], ['bear', i.bear_case]].map(([variant, scenario]) => <Scenario key={String(variant)} variant={String(variant)} data={record(scenario)} />)}</div></section>
+    <section className="section view-change-section"><h2>What Would Change the View?</h2><div className="triggers-list">{i.what_would_change_view?.map((trigger, n) => <div className="trigger-item" key={n}><strong>{trigger.trigger}</strong><p>{trigger.description}</p></div>)}</div>{!i.what_would_change_view?.length && <p>No change-view conditions supplied.</p>}</section>
+    <details className="section confidence-section" open><summary>Confidence & missing information</summary><div className="confidence-display"><p className="confidence-score">Confidence: {confidence(i.confidence)}</p><ul className="confidence-factors">{i.confidence_reasons?.map((reason, n) => <li key={n}>{reason}</li>)}</ul><div className="missing-info"><h3>Missing Information</h3><ul>{i.missing_information?.map((missing, n) => <li key={n}>{missing}</li>)}</ul>{!i.missing_information?.length && <p>No missing-information flags supplied; this does not guarantee complete coverage.</p>}</div></div></details>
+    <details className="section evidence-section"><summary>Supporting Evidence ({i.supporting_evidence?.length ?? 0})</summary><DataStatus empty={!i.supporting_evidence?.length} label="supporting evidence references" /><div className="evidence-list">{i.supporting_evidence?.map((evidence, n) => <Evidence key={n} data={record(evidence)} />)}</div></details>
+  </div>
 }
 
-function NewsTab({ news, loading }: { news: NewsEvent[] | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
-  if (!news?.length) return <div className="empty-state">No news available</div>
-
-  return (
-    <div className="tab-content news-tab">
-      <div className="news-list">
-        {news.map((n: NewsEvent) => (
-    <article key={n.document_id} className="news-item">
-      <Link to={n.source_url} target="_blank" rel="noopener noreferrer" className="news-link">
-        <div className="news-header">
-          <h4>{n.headline}</h4>
-          <span className="news-publisher">{n.publisher}</span>
-        </div>
-        <p className="news-summary">{n.summary?.substring(0, 200)}...</p>
-        <div className="news-meta">
-          <span className="news-source">{n.source_type}</span>
-          <time>{n.published_at ? format(new Date(n.published_at), 'MMM d, yyyy HH:mm') : ''}</time>
-        </div>
-      </Link>
-    </article>
-))}
-      </div>
-    </div>
-  )
+function Impact({ title, data, direction }: { title: string; data: Record<string, unknown>; direction: unknown }) {
+  const variant = direction === 'positive' || direction === 'bullish' ? 'success' : direction === 'negative' || direction === 'bearish' ? 'error' : direction === 'mixed' ? 'warning' : 'default'
+  return <article className={`impact-card ${title === 'Company Impact' ? 'company-impact' : 'stock-impact'}`}><h3>{title}</h3><Badge variant={variant}>{text(direction, 'Unknown')}</Badge><p>Magnitude: {text(data.magnitude, 'Unknown')}</p><p>Time horizon: {text(data.horizon, 'Unknown')}</p><p>Confidence: {confidence(data.confidence)}</p><ul className="reasons-list">{Array.isArray(data.reasons) && data.reasons.map((reason, n) => <li key={n}>{text(reason)}</li>)}</ul></article>
 }
 
-function InsidersTab({ insiders, loading }: { insiders: InsiderTransaction[] | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
-  if (!insiders?.length) return <div className="empty-state">No insider transactions found</div>
-
-  return (
-    <div className="tab-content insiders-tab">
-      <table className="insiders-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Insider</th>
-            <th>Role</th>
-            <th>Type</th>
-            <th>Shares</th>
-            <th>Price</th>
-            <th>Value</th>
-            <th>10b5-1</th>
-            <th>Holdings After</th>
-          </tr>
-        </thead>
-        <tbody>
-          {insiders.map((i: InsiderTransaction) => {
-            return (
-              <tr key={i.transaction_id}>
-                <td>{format(new Date(i.transaction_date), 'MMM d, yyyy')}</td>
-                <td>{i.name}</td>
-                <td>{i.role}</td>
-                <td><Badge variant={i.transaction_type === 'purchase' ? 'success' : i.transaction_type === 'sale' ? 'error' : 'default'}>{i.transaction_type}</Badge></td>
-                <td>{i.shares?.toLocaleString()}</td>
-                <td>{i.price ? `$${i.price}` : '-'}</td>
-                <td>{i.transaction_value ? formatNumber(i.transaction_value) : '-'}</td>
-                <td>{i.is_10b5_1 ? <Badge variant="warning">10b5-1</Badge> : 'No'}</td>
-                <td>{i.holdings_after?.toLocaleString() || '-'}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
+function Scenario({ variant, data }: { variant: string; data: Record<string, unknown> }) {
+  return <article className={`scenario-card scenario-${variant}`}><h3 className="scenario-label">{variant.toUpperCase()} CASE</h3><p className="scenario-description">{text(data.description, 'Scenario unavailable')}</p>{data.probability_band != null && <p className="probability">Backend probability band: {text(data.probability_band)}</p>}<details className="scenario-conditions"><summary>Required conditions</summary><ul>{Array.isArray(data.required_conditions) && data.required_conditions.map((condition, n) => <li key={n}>{text(condition)}</li>)}</ul>{(!Array.isArray(data.required_conditions) || !data.required_conditions.length) && <p>Conditions unavailable.</p>}</details></article>
 }
 
-function LeadershipTab({ leadership, loading }: { leadership: LeadershipData | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><SkeletonText lines={3} /></div>
-  if (!leadership || !leadership.ceo && !leadership.cfo) return <div className="empty-state">No leadership data available</div>
-
-  return (
-    <div className="tab-content leadership-tab">
-      <div className="leadership-grid">
-        {leadership.ceo && (
-          <div className="leader-card">
-            <div className="leader-avatar">CEO</div>
-            <div className="leader-info">
-              <h4>CEO</h4>
-              <p className="leader-name">{leadership.ceo}</p>
-            </div>
-          </div>
-        )}
-        {leadership.cfo && (
-          <div className="leader-card">
-            <div className="leader-avatar">CFO</div>
-            <div className="leader-info">
-              <h4>CFO</h4>
-              <p className="leader-name">{leadership.cfo}</p>
-            </div>
-          </div>
-        )}
-        {Object.entries(leadership).filter(([k, v]) => !['ceo', 'cfo'].includes(k) && v).map(([role, name]) => (
-          <div key={role} className="leader-card">
-            <div className="leader-avatar">{role.toUpperCase()}</div>
-            <div className="leader-info">
-              <h4>{role.toUpperCase()}</h4>
-              <p className="leader-name">{name}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+function Evidence({ data }: { data: Record<string, unknown> }) {
+  return <article className="evidence-item"><span className="evidence-source">{text(data.source_type, 'Source type unavailable')}</span><p>{text(data.description)}</p><SourceLink url={data.url} /><span className="evidence-time">Evidence date: {displayDate(typeof data.timestamp === 'string' ? data.timestamp : null)}</span>{!!data.evidence_id && <small>Evidence ID: {text(data.evidence_id)}</small>}</article>
 }
 
-function FilingsTab({ filings, loading }: { filings: Filing[] | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
-  if (!filings?.length) return <div className="empty-state">No filings found</div>
-
-  return (
-    <div className="tab-content filings-tab">
-      <table className="filings-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Type</th>
-            <th>Description</th>
-            <th>Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filings.map((f: Filing) => {
-            return (
-              <tr key={f.event_id}>
-                <td>{f.released_at ? format(new Date(f.released_at), 'MMM d, yyyy') : '-'}</td>
-                <td><Badge variant="default">{f.metadata?.form || f.event_type}</Badge></td>
-                <td>{f.title}</td>
-                <td><a href={f.source_url || '#'} target="_blank" rel="noopener noreferrer" className="link">View</a></td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
+function Provenance({ data }: { data: Record<string, unknown> }) {
+  return <span>Mode: {text(data.mode, 'Not supplied')} · Source: {text(data.source)} · Market timestamp (as supplied): {text(data.market_timestamp)} · Retrieval timestamp (as supplied): {text(data.retrieved_at)}{data.status ? ` · Status: ${text(data.status)}` : ''}{data.reason ? ` · ${text(data.reason)}` : ''}</span>
 }
 
-function QuantTab({ quant, loading }: { quant: QuantSignals | undefined; loading: boolean }) {
-  if (loading) return <div className="tab-content"><SkeletonCard /><SkeletonCard /></div>
-  if (!quant) return <div className="empty-state">No quant data available</div>
-
-  return (
-    <div className="tab-content quant-tab">
-      <div className="quant-signals">
-        <h3>Quant Signals</h3>
-        <div className="signals-grid">
-          {Object.entries(quant.signals || {}).map(([key, value]: [string, number]) => (
-    <div key={key} className="signal-card">
-      <span className="signal-name">{key}</span>
-      <span className={`signal-value ${value > 0 ? 'positive' : value < 0 ? 'negative' : ''}`}>
-        {typeof value === 'number' ? value.toFixed(2) : value}
-      </span>
-    </div>
-))}
-        </div>
-      </div>
-    </div>
-  )
+function EventList({ data, label }: { data: unknown; label: string }) {
+  const events = Array.isArray(data) ? data : []
+  return <div className={`tab-content ${label}-tab`}><h2>{label.charAt(0).toUpperCase() + label.slice(1)} evidence</h2><DataStatus empty={!events.length} label={`${label} records`} /><div className="events-list">{events.map((value, n) => {
+    const event = record(value), metadata = record(event.metadata)
+    return <article key={text(event.event_id, String(n))} className="event-item"><div className="event-info"><h3>{text(event.title)}</h3><p>{text(event.description, 'Description unavailable')}</p><p className="event-meta">{text(event.event_type)} · {text(event.status)} · {text(event.importance)}</p><p>Scheduled date: {displayDate(typeof event.scheduled_at === 'string' ? event.scheduled_at : null)} · Publication date: {displayDate(typeof event.released_at === 'string' ? event.released_at : null)}</p><p className="event-source">Source: {text(event.source)}{/(test|fixture|mock|demo)/i.test(text(event.source)) ? ' — test/demo provenance, not live evidence' : ''}</p><SourceLink url={event.source_url} /><details><summary>Provider fields & provenance</summary><p>Event ID: {text(event.event_id)} · Source ID: {text(event.source_id)}</p><p>First seen: {displayDate(typeof event.first_seen_at === 'string' ? event.first_seen_at : null)} · Last seen: {displayDate(typeof event.last_seen_at === 'string' ? event.last_seen_at : null)}</p><dl>{Object.entries(metadata).map(([key, field]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{typeof field === 'object' && field !== null ? JSON.stringify(field) : text(field, 'Unknown')}</dd></div>)}</dl></details></div></article>
+  })}</div></div>
 }
 
-function ScenarioCard({ scenario, variant }: { scenario: Interpretation['base_case']; variant: 'base' | 'bull' | 'bear' }) {
-  const variants = {
-    base: { class: 'scenario-base', label: 'BASE CASE' },
-    bull: { class: 'scenario-bull', label: 'BULL CASE' },
-    bear: { class: 'scenario-bear', label: 'BEAR CASE' },
-  }
-
-  const v = variants[variant]
-
-  return (
-    <div className={`scenario-card ${v.class}`}>
-      <div className="scenario-header">
-        <span className="scenario-label">{v.label}</span>
-        {scenario.probability_band && <span className="probability">{scenario.probability_band}</span>}
-      </div>
-      <p className="scenario-description">{scenario.description}</p>
-      {scenario.required_conditions?.length > 0 && (
-        <div className="scenario-conditions">
-          <strong>Required conditions:</strong>
-          <ul>
-            {scenario.required_conditions.map((c: string, i: number) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  )
+function Leadership({ data }: { data: unknown }) {
+  const leaders = record(record(data).leadership)
+  return <div className="tab-content leadership-tab"><h2>Evidence-derived leadership</h2><DataStatus empty={!Object.keys(leaders).length} label="leadership records" /><div className="leadership-grid">{Object.entries(leaders).map(([role, value]) => { const leader = record(value); return <article key={role} className="leader-card"><h3>{role.toUpperCase()}</h3><p className="leader-name">{text(leader.name)}</p><p>Effective date: {displayDate(typeof leader.effective_date === 'string' ? leader.effective_date : null)}</p><p>Source: {text(leader.source)} · Event: {text(leader.event_id)}</p><SourceLink url={leader.source_url} /></article> })}</div></div>
 }
 
-function getImpactVariant(direction: string) {
-  switch (direction) {
-    case 'positive': return 'success'
-    case 'negative': return 'error'
-    case 'mixed': return 'warning'
-    default: return 'default'
-  }
+function Quant({ data }: { data: unknown }) {
+  const quant = record(data), signals = record(quant.signals)
+  return <div className="tab-content quant-tab"><h2>Quant Signals</h2><p className="data-status"><Provenance data={quant} /></p><p>Score: {displayNumber(quant.quant_score)} · Rank: {text(quant.rank)} · Calculation date: {displayDate(typeof quant.calculated_at === 'string' ? quant.calculated_at : null)}</p><DataStatus empty={!Object.keys(signals).length} label="quant signals" /><div className="signals-grid">{Object.entries(signals).map(([name, value]) => <article className="signal-card" key={name}><h3 className="signal-name">{name.replace(/_/g, ' ')}</h3><span className="signal-value">{displayNumber(value, 2)}</span></article>)}</div><details><summary>Backend score components</summary><dl>{Object.entries(record(quant.components)).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{displayNumber(value, 2)}</dd></div>)}</dl></details></div>
 }
 
-function getStockVariant(bias: string) {
-  switch (bias) {
-    case 'bullish': return 'success'
-    case 'bearish': return 'error'
-    case 'mixed': return 'warning'
-    default: return 'default'
-  }
+function AnswerForm({ symbol }: { symbol: string }) {
+  const [question, setQuestion] = useState('')
+  const answer = useMutation({ mutationFn: (value: string) => api.answerQuestion(symbol, value) })
+  const data = record(answer.data)
+  return <section className="section"><h2>Ask about {symbol}</h2><p>Evidence-backed, deterministic answers. Missing evidence remains missing.</p><form className="search-form" onSubmit={e => { e.preventDefault(); if (question.trim()) answer.mutate(question.trim()) }}><label htmlFor="stock-question">Research question</label><input className="search-input" id="stock-question" value={question} onChange={e => setQuestion(e.target.value)} placeholder="What would change the view?" maxLength={1000} /><button className="btn btn-primary" disabled={!question.trim() || answer.isPending}>Ask</button></form><DataStatus loading={answer.isPending} error={answer.isError} label="answer" />{answer.isSuccess && <article><h3>{text(data.question)}</h3><p>{text(data.answer)}</p><p>Confidence: {confidence(data.confidence)}</p><details><summary>Answer evidence</summary>{Array.isArray(data.evidence_refs) && data.evidence_refs.map((evidence, n) => <Evidence key={n} data={record(evidence)} />)}</details></article>}</section>
 }
 
-function formatNumber(num: number): string {
-  if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B'
-  if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M'
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K'
-  return num.toLocaleString()
+function confidence(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(0)}%` : 'Unavailable'
 }
 
+function PriceChart({ bars }: { bars: Array<{ t: string; c: number }> }) {
+  const valid = bars.filter(bar => Number.isFinite(bar.c)).slice().sort((a, b) => a.t.localeCompare(b.t))
+  if (valid.length < 2) return <p>At least two valid daily closes are required for a chart.</p>
+  const low = Math.min(...valid.map(bar => bar.c)), high = Math.max(...valid.map(bar => bar.c))
+  const points = valid.map((bar, n) => `${10 + n / (valid.length - 1) * 580},${high === low ? 80 : 150 - (bar.c - low) / (high - low) * 140}`).join(' ')
+  return <figure className="price-history"><figcaption>Daily closing prices, {displayDate(valid[0].t)} to {displayDate(valid[valid.length - 1].t)}. Range ${displayNumber(low, 2)}–${displayNumber(high, 2)}; exact values in the table below.</figcaption><svg width="100%" height="160" viewBox="0 0 600 160" role="img" aria-label="Provider-supplied daily closing price history"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="2" /></svg></figure>
+}
 export default StockPage

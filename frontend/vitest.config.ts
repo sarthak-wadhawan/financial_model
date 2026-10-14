@@ -11,10 +11,7 @@ export default defineConfig({
     exclude: ['src/test/e2e/**', 'node_modules/**', 'dist/**'],
     globals: true,
     css: true,
-    pool: 'vmForks',
-    deps: {
-      external: ['@csstools/css-calc', '@csstools/css-color-parser', '@csstools/css-parser-algorithms', '@csstools/css-tokenizer', '@asamuzakjp/css-color'],
-    },
+    pool: 'forks',
   },
   resolve: {
     alias: {

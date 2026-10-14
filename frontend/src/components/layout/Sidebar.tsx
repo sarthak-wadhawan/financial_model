@@ -23,7 +23,7 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
             <span className="logo-text">Trading Copilot</span>
           </div>
         )}
-        <button
+        {onToggle && <button
           className="sidebar-toggle"
           onClick={onToggle}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -36,7 +36,7 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
               <path d="M15 18l-6-6 6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             )}
           </svg>
-        </button>
+        </button>}
       </div>
 
       <nav className="sidebar-nav" aria-label="Main navigation">
@@ -47,6 +47,7 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
                 to={item.href}
                 className={`nav-item ${location.pathname === item.href ? 'active' : ''}`}
                 aria-current={location.pathname === item.href ? 'page' : undefined}
+                aria-label={collapsed ? item.label : undefined}
               >
                 <span className="nav-icon" aria-hidden="true">
                   {getIcon(item.icon)}

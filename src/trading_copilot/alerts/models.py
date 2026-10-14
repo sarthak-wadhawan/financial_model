@@ -55,8 +55,8 @@ class AlertBase(BaseModel):
     alert_type: AlertType
     symbols: List[str] = Field(default_factory=list)
     condition: AlertCondition
-    threshold: Optional[float] = None
-    threshold_secondary: Optional[float] = None
+    threshold: Optional[float] = Field(None, allow_inf_nan=False)
+    threshold_secondary: Optional[float] = Field(None, allow_inf_nan=False)
     severity: AlertSeverity = AlertSeverity.INFO
     channels: List[AlertChannel] = Field(default_factory=lambda: [AlertChannel.IN_APP])
     is_active: bool = True
@@ -74,11 +74,11 @@ class AlertUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     symbols: Optional[List[str]] = None
-    condition: Optional[str] = None
-    threshold: Optional[float] = None
-    threshold_secondary: Optional[float] = None
-    severity: Optional[str] = None
-    channels: Optional[List[str]] = None
+    condition: Optional[AlertCondition] = None
+    threshold: Optional[float] = Field(None, allow_inf_nan=False)
+    threshold_secondary: Optional[float] = Field(None, allow_inf_nan=False)
+    severity: Optional[AlertSeverity] = None
+    channels: Optional[List[AlertChannel]] = None
     is_active: Optional[bool] = None
     cooldown_minutes: Optional[int] = Field(None, ge=1)
     metadata: Optional[dict] = None
@@ -117,7 +117,9 @@ class AlertTestRequest(BaseModel):
 
 class AlertTestResponse(BaseModel):
     """Response from alert test."""
-    would_trigger: bool
+    would_trigger: Optional[bool]
+    status: str = "evaluated"
+    unavailable_symbols: List[str] = Field(default_factory=list)
     symbols_checked: List[str]
     current_values: dict
     message: Optional[str] = None

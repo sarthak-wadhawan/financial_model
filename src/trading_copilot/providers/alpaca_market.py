@@ -143,7 +143,7 @@ class AlpacaMarketDataProvider:
         limit: int = 10000,
     ) -> dict[str, list[dict]]:
         """
-        Fetch bars for a batch of symbols from Alpaca.
+        Fetch bars for a batch of symbols from Alpaca, handling pagination via next_page_token.
 
         Returns dict mapping symbol to list of bar dicts.
         """
@@ -163,33 +163,42 @@ class AlpacaMarketDataProvider:
 
         logger.debug("Fetching bars for %d symbols from %s to %s (feed=%s)", len(symbols), start_str, end_str, self.feed)
 
-        response = self._client.get("/v2/stocks/bars", params=params)
+        all_bars_by_symbol: dict[str, list[dict]] = {symbol: [] for symbol in symbols}
+        page_token = None
 
-        # Handle specific error codes
-        if response.status_code == 401:
-            raise ValueError("Alpaca authentication failed: check API credentials")
-        elif response.status_code == 403:
-            raise ValueError("Alpaca access forbidden: check subscription/permissions")
-        elif response.status_code == 429:
-            raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
+        while True:
+            if page_token:
+                params["page_token"] = page_token
 
-        response.raise_for_status()
-        data = response.json()
+            response = self._client.get("/v2/stocks/bars", params=params)
 
-        # Parse response: {"bars": {"SYMBOL": [...bars...]}}
-        bars_by_symbol = data.get("bars", {})
+            # Handle specific error codes
+            if response.status_code == 401:
+                raise ValueError("Alpaca authentication failed: check API credentials")
+            elif response.status_code == 403:
+                raise ValueError("Alpaca access forbidden: check subscription/permissions")
+            elif response.status_code == 429:
+                raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
 
-        # Convert to list of dicts for each symbol
-        result = {}
-        for symbol, bars in bars_by_symbol.items():
-            result[symbol] = bars
+            response.raise_for_status()
+            data = response.json()
 
-        # Ensure all requested symbols have entries (even if empty)
-        for symbol in symbols:
-            if symbol not in result:
-                result[symbol] = []
+            # Parse response: {"bars": {"SYMBOL": [...bars...]}}
+            bars_by_symbol = data.get("bars", {})
 
-        return result
+            # Accumulate bars for each symbol
+            for symbol, bars in bars_by_symbol.items():
+                if symbol in all_bars_by_symbol:
+                    all_bars_by_symbol[symbol].extend(bars)
+
+            # Check for pagination
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+
+            logger.debug("Fetching next page of bars (token present)")
+
+        return all_bars_by_symbol
 
     def get_daily_bars(
         self,
@@ -214,7 +223,8 @@ class AlpacaMarketDataProvider:
 
         # If no minimum sessions required, use simple fetch
         if min_trading_sessions is None:
-            return self._get_daily_bars_simple(symbols, start, end)
+            results, _ = self._get_daily_bars_simple(symbols, start, end)
+            return results
 
         # Otherwise, iteratively expand lookback until we have enough sessions
         current_start = start
@@ -227,7 +237,7 @@ class AlpacaMarketDataProvider:
             logger.debug("Fetching bars (attempt %d/%d) for %d symbols from %s to %s",
                          attempt + 1, max_attempts, len(symbols), current_start.date(), end.date())
             
-            results = self._get_daily_bars_simple(symbols, current_start, end)
+            results, statuses = self._get_daily_bars_simple(symbols, current_start, end)
 
             # Check if all symbols have enough sessions
             all_sufficient = True
@@ -242,6 +252,11 @@ class AlpacaMarketDataProvider:
             if all_sufficient:
                 logger.info("All %d symbols have ≥%d trading sessions (min found: %d)",
                             len(symbols), min_trading_sessions, min_sessions_found)
+                return results
+
+            # If any batch had provider errors, don't keep expanding - return what we have
+            if any(s == "provider_error" for s in statuses.values()):
+                logger.warning("Provider errors encountered; stopping lookback expansion")
                 return results
 
             if attempt < max_attempts - 1:
@@ -277,21 +292,31 @@ class AlpacaMarketDataProvider:
         symbols: list[str],
         start: datetime,
         end: datetime,
-    ) -> dict[str, list[DailyBar]]:
-        """Internal method to fetch bars without session count validation."""
+    ) -> tuple[dict[str, list[DailyBar]], dict[str, str]]:
+        """Internal method to fetch bars without session count validation.
+
+        Returns a tuple of (results_dict, status_dict) where status_dict maps symbols
+        to their fetch status: "available", "empty", or "provider_error".
+        """
         # Check cache first
         cache_key = self._cache_key(symbols, start, end, data_type="bars")
         if self.cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
                 logger.info("Cache hit for %d symbols (bars)", len(symbols))
-                return cached
+                # Cache stores (results, statuses)
+                if isinstance(cached, tuple) and len(cached) == 2:
+                    return cached
+                # Backward compatibility: old cache format without statuses
+                return cached, {symbol: "available" for symbol in symbols}
 
         # Batch symbols to respect API limits
         all_results: dict[str, list[DailyBar]] = {}
+        all_statuses: dict[str, str] = {}
 
         for i in range(0, len(symbols), self.max_symbols_per_request):
             batch = symbols[i:i + self.max_symbols_per_request]
+            batch_status = "available"
             try:
                 batch_results = self._fetch_bars_batch(batch, start, end)
 
@@ -305,6 +330,7 @@ class AlpacaMarketDataProvider:
                             logger.warning("Failed to parse bar for %s: %s", symbol, e)
                             continue
                     all_results[symbol] = daily_bars
+                    all_statuses[symbol] = "empty" if not daily_bars else "available"
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code >= 500:
@@ -314,20 +340,25 @@ class AlpacaMarketDataProvider:
                     # Rate limited - re-raise for retry
                     raise
                 else:
-                    # Client error - log and continue with other batches
-                    logger.error("Failed to fetch bars for batch: %s", e)
+                    # Client error (4xx) - classify as provider_error
+                    logger.error("Client error fetching bars for batch: %s (status=%d)", e, e.response.status_code)
                     for symbol in batch:
                         all_results[symbol] = []
+                        all_statuses[symbol] = "provider_error"
+                    batch_status = "provider_error"
             except (httpx.TimeoutException, httpx.ConnectError) as e:
+                # Network error - classify as provider_error (do not re-raise for retry on network)
                 logger.error("Network error fetching bars for batch: %s", e)
                 for symbol in batch:
                     all_results[symbol] = []
+                    all_statuses[symbol] = "provider_error"
+                batch_status = "provider_error"
 
-        # Cache the results
-        if self.cache:
-            self.cache.set(cache_key, all_results)
+        # Only cache if no provider errors occurred
+        if self.cache and all(s != "provider_error" for s in all_statuses.values()):
+            self.cache.set(cache_key, (all_results, all_statuses))
 
-        return all_results
+        return all_results, all_statuses
 
     def get_benchmark_bars(
         self,
@@ -339,6 +370,82 @@ class AlpacaMarketDataProvider:
         """Get benchmark (e.g., SPY) daily bars."""
         result = self.get_daily_bars([benchmark], start, end, min_trading_sessions=min_trading_sessions)
         return result.get(benchmark, [])
+
+    def get_daily_bars_with_status(
+        self,
+        symbols: list[str],
+        start: datetime,
+        end: datetime,
+        min_trading_sessions: int | None = None,
+    ) -> tuple[dict[str, list[DailyBar]], dict[str, str]]:
+        """
+        Get daily OHLCV bars for multiple symbols along with per-symbol fetch status.
+
+        Returns a tuple of (results_dict, status_dict) where status_dict maps symbols
+        to their fetch status: "available", "empty", or "provider_error".
+        """
+        # Ensure timezone-aware
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+
+        if min_trading_sessions is None:
+            return self._get_daily_bars_simple(symbols, start, end)
+
+        # For min_trading_sessions, we need to expand lookback; use the simple method
+        # and return statuses from the final attempt
+        current_start = start
+        max_attempts = 5
+        trading_day_ratio = 0.65
+
+        for attempt in range(max_attempts):
+            logger.debug("Fetching bars (attempt %d/%d) for %d symbols from %s to %s",
+                         attempt + 1, max_attempts, len(symbols), current_start.date(), end.date())
+
+            results, statuses = self._get_daily_bars_simple(symbols, current_start, end)
+
+            # Check if all symbols have enough sessions
+            all_sufficient = True
+            min_sessions_found = float('inf')
+            for symbol, bars in results.items():
+                session_count = len(bars)
+                min_sessions_found = min(min_sessions_found, session_count)
+                if session_count < min_trading_sessions:
+                    all_sufficient = False
+                    logger.debug("Symbol %s has %d sessions, need %d", symbol, session_count, min_trading_sessions)
+
+            if all_sufficient:
+                logger.info("All %d symbols have ≥%d trading sessions (min found: %d)",
+                            len(symbols), min_trading_sessions, min_sessions_found)
+                return results, statuses
+
+            # If any batch had provider errors, don't keep expanding
+            if any(s == "provider_error" for s in statuses.values()):
+                logger.warning("Provider errors encountered; stopping lookback expansion")
+                return results, statuses
+
+            if attempt < max_attempts - 1:
+                calendar_days_so_far = (end - current_start).days
+                if min_sessions_found > 0:
+                    required_calendar_days = int(calendar_days_so_far * min_trading_sessions / min_sessions_found)
+                else:
+                    required_calendar_days = calendar_days_so_far * 2
+                required_calendar_days = int(required_calendar_days * 1.1)
+                required_calendar_days = min(required_calendar_days, 1000)
+
+                new_start = end - timedelta(days=required_calendar_days)
+                if new_start >= current_start:
+                    logger.warning("Cannot expand lookback further (at %s)", current_start.date())
+                    break
+                current_start = new_start
+                logger.info("Expanding lookback to %s (%d calendar days) to reach %d sessions",
+                            current_start.date(), required_calendar_days, min_trading_sessions)
+            else:
+                logger.warning("Max attempts reached. Min sessions found: %d, required: %d",
+                               min_sessions_found, min_trading_sessions)
+
+        return results, statuses
 
     # ---------------------------------------------------------------------
     # Latest price

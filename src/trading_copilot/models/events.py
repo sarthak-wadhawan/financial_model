@@ -109,7 +109,7 @@ class MarketEvent(BaseModel):
         import hashlib
 
         # Fields that determine if an event's content has changed
-        # Note: event_id, created_at, first_seen_at, last_seen_at, updated_at, metadata are excluded
+        # Observation bookkeeping is excluded; provider metadata is evidence.
         key_parts = [
             self.event_type.value,
             self.symbol or "",
@@ -128,7 +128,24 @@ class MarketEvent(BaseModel):
             self.source_url or "",
             self.source_id or "",
         ]
-        key_str = "|".join(key_parts)
+        import json
+        # Exclude bookkeeping/internal fields from content hash
+        bookkeeping_keys = {
+            "_identity_key",
+            "retrieved_at",
+            "first_seen_at",
+            "last_seen_at",
+            "updated_at",
+            "created_at",
+            "retrieval_time",
+            "calculated_at",
+            "calculation_timestamp",
+        }
+        key_parts.append(json.dumps(
+            {k: v for k, v in self.model_dump(mode="json")["metadata"].items() if k not in bookkeeping_keys},
+            sort_keys=True, separators=(",", ":"), default=str,
+        ))
+        key_str = json.dumps(key_parts, separators=(",", ":"))
         return hashlib.sha256(key_str.encode()).hexdigest()[:32]
 
     def model_post_init(self, __context: Any) -> None:
@@ -145,6 +162,7 @@ class EventRevision(BaseModel):
     changed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     changed_fields: dict[str, Any]  # field_name -> old_value
     changed_by: str = "system"  # Could be provider name in future
+    old_snapshot: Optional[dict[str, Any]] = None  # None means legacy/incomplete history
 
 
 class EventQueryResult(BaseModel):

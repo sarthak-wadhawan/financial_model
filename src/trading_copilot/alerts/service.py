@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Optional, List
+from math import isfinite
 import uuid
 
 from trading_copilot.alerts.store import AlertStore
@@ -83,39 +84,57 @@ class AlertService:
 
     def acknowledge_all_for_alert(self, alert_id: str) -> int:
         """Acknowledge all triggers for an alert."""
-        triggers = self.store.get_triggers(alert_id=alert_id, unacknowledged_only=True)
         count = 0
-        for trigger in triggers:
-            if self.store.acknowledge_trigger(trigger.id):
-                count += 1
+        while True:
+            triggers = self.store.get_triggers(alert_id=alert_id, unacknowledged_only=True)
+            if not triggers:
+                break
+            for trigger in triggers:
+                if self.store.acknowledge_trigger(trigger.id):
+                    count += 1
         return count
 
     # Alert Testing
 
-    def test_alert(self, request: AlertTestRequest) -> AlertTestResponse:
-        """Test an alert against current data (placeholder implementation)."""
+    def test_alert(self, request: AlertTestRequest, current_data: Optional[dict] = None) -> AlertTestResponse:
+        """Side-effect-free evaluation of supplied observations; never fabricate data."""
         alert = self.store.get(request.alert_id)
         if not alert:
-            return AlertTestResponse(
-                would_trigger=False,
-                symbols_checked=[],
-                current_values={},
-                message=f"Alert {request.alert_id} not found",
-            )
-
-        # This is a placeholder - in a real implementation, you would:
-        # 1. Fetch current market data for the alert's symbols
-        # 2. Evaluate the alert condition against current values
-        # 3. Return whether it would trigger
-
-        # For now, return a mock response
-        symbols_checked = alert.symbols if alert.symbols else ["AAPL", "MSFT", "GOOGL"]
+            raise KeyError("Alert not found")
+        observations = current_data or {}
+        symbols = alert.symbols or list(observations)
+        available = {s: observations[s] for s in symbols if s in observations and self._has_inputs(alert, observations[s])}
+        missing = [s for s in symbols if s not in available]
+        matches = any(self._evaluate_condition(alert, s, data) for s, data in available.items())
+        complete = bool(symbols) and not missing
         return AlertTestResponse(
-            would_trigger=False,
-            symbols_checked=symbols_checked,
-            current_values={sym: {"price": 150.0, "change_pct": 0.5} for sym in symbols_checked},
-            message="Alert test completed (mock implementation)",
+            would_trigger=matches if complete else (True if matches else None),
+            status="evaluated" if complete else "unavailable",
+            unavailable_symbols=missing,
+            symbols_checked=list(available),
+            current_values=available,
+            message=("Dry-run only: condition evaluated; no notification sent or history changed."
+                     if complete else "Evaluation unavailable or incomplete: missing observations, prior values, or unsupported alert type. No notification sent."),
         )
+
+    @staticmethod
+    def _field(alert: Alert) -> Optional[str]:
+        return {AlertType.PRICE: "price", AlertType.PRICE_CHANGE_PCT: "change_pct",
+                AlertType.VOLUME: "volume", AlertType.QUANT_SCORE: "quant_score"}.get(alert.alert_type)
+
+    def _has_inputs(self, alert: Alert, data: dict) -> bool:
+        field = self._field(alert)
+        if not field or not isinstance(data, dict):
+            return False
+        def numeric(value):
+            return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+        if not numeric(data.get(field)):
+            return False
+        if alert.condition != AlertCondition.CHANGES and not numeric(alert.threshold):
+            return False
+        if alert.condition in (AlertCondition.CROSSES_ABOVE, AlertCondition.CROSSES_BELOW, AlertCondition.CHANGES):
+            return numeric(data.get(f"previous_{field}"))
+        return True
 
     # Alert Evaluation (to be called by scheduler)
 
@@ -143,7 +162,7 @@ class AlertService:
                     continue
 
             # Evaluate for each symbol
-            for symbol in alert.symbols:
+            for symbol in alert.symbols or list(current_data):
                 if symbol not in current_data:
                     continue
 
@@ -158,6 +177,8 @@ class AlertService:
 
     def _evaluate_condition(self, alert: Alert, symbol: str, data: dict) -> Optional[AlertTrigger]:
         """Evaluate a single alert condition against data."""
+        if not self._has_inputs(alert, data):
+            return None
         value = None
 
         # Map alert type to data field
@@ -177,7 +198,7 @@ class AlertService:
             return None
 
         threshold = alert.threshold
-        if threshold is None:
+        if threshold is None and alert.condition != AlertCondition.CHANGES:
             return None
 
         triggered = False
@@ -189,7 +210,12 @@ class AlertService:
             triggered = True
         elif condition == AlertCondition.EQUALS and abs(value - threshold) < 0.001:
             triggered = True
-        # For CROSSES_ABOVE/BELOW we'd need previous value
+        elif condition == AlertCondition.CROSSES_ABOVE:
+            triggered = data[f"previous_{self._field(alert)}"] <= threshold < value
+        elif condition == AlertCondition.CROSSES_BELOW:
+            triggered = data[f"previous_{self._field(alert)}"] >= threshold > value
+        elif condition == AlertCondition.CHANGES:
+            triggered = data[f"previous_{self._field(alert)}"] != value
 
         if not triggered:
             return None
@@ -206,7 +232,8 @@ class AlertService:
             threshold=threshold,
             severity=severity.value,
             triggered_at=datetime.now(),
-            metadata={"condition": alert.condition, "alert_name": alert.name},
+            metadata={"condition": alert.condition, "alert_name": alert.name,
+                      "observation": data, "delivery": "in_app_history_only"},
         )
 
         return trigger

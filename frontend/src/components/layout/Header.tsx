@@ -22,6 +22,12 @@ export function Header() {
         </nav>
 
         <div className="header-actions">
+          <details className="mobile-nav">
+            <summary className="mobile-nav-toggle">Menu</summary>
+            <nav aria-label="Mobile navigation" onClick={e => e.currentTarget.closest('details')?.removeAttribute('open')} onKeyDown={e => { if (e.key === 'Escape') { const details = e.currentTarget.closest('details'); details?.removeAttribute('open'); details?.querySelector('summary')?.focus() } }}>
+              {['Dashboard', 'Scanner', 'Macro', 'Search', 'Watchlists', 'Calendar', 'Alerts', 'Settings'].map((label, i) => <Link key={label} className="nav-link" to={['/', '/scanner', '/macro', '/search', '/watchlists', '/calendar', '/alerts', '/settings'][i]}>{label}</Link>)}
+            </nav>
+          </details>
           <ThemeToggle />
         </div>
       </div>

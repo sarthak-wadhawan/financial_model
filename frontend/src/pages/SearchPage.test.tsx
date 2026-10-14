@@ -1,117 +1,93 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SearchPage } from '../pages/SearchPage'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { api, type SymbolSearchResult } from '../services/api'
+import { SearchPage } from './SearchPage'
 
-describe('SearchPage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
+const result: SymbolSearchResult = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', type: 'stock', source: 'test-fixture' }
+function mount() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  render(<QueryClientProvider client={client}><MemoryRouter><SearchPage /></MemoryRouter></QueryClientProvider>)
+}
+function enter(value = 'AAPL') { fireEvent.change(screen.getByRole('searchbox', { name: 'Symbol or company name' }), { target: { value } }) }
+beforeEach(() => { vi.spyOn(api, 'searchSymbols').mockResolvedValue([result]) })
+afterEach(() => vi.restoreAllMocks())
+
+describe('SearchPage frozen symbol search contract', () => {
+  it('renders accessible company search, not unimplemented news/event tabs', () => {
+    mount()
+    expect(screen.getByRole('heading', { name: 'Search Stocks' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Symbol or company name' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
   })
-
-  it('renders search hero when query is empty', () => {
-    render(<SearchPage />)
-    expect(screen.getByRole('heading', { name: /Search/i })).toBeInTheDocument()
-    expect(screen.getByText(/Find stocks, news, events, and filings/i)).toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/Search stocks, news, events, filings/i)).toBeInTheDocument()
+  it('shows coverage limits and avoids requesting an empty query', () => {
+    mount()
+    expect(screen.getByText(/Coverage depends on the connected provider/)).toBeInTheDocument()
+    expect(api.searchSymbols).not.toHaveBeenCalled()
   })
-
-  it('renders search hints', () => {
-    render(<SearchPage />)
-    expect(screen.getByText(/Try: "AAPL", "earnings", "FOMC", "Form 4"/i)).toBeInTheDocument()
+  it('shows genuine debounce/loading state rather than only accepting input', async () => {
+    vi.mocked(api.searchSymbols).mockImplementation(() => new Promise(() => {}))
+    mount(); enter()
+    expect(screen.getByRole('searchbox')).toHaveValue('AAPL')
+    expect(await screen.findByText('Loading matching stocks…')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /AAPL/ })).not.toBeInTheDocument()
   })
-
-  it('shows loading state when query is being debounced', () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    // The debounce prevents immediate loading state in this test setup
-    // but the input should accept the value
-    expect(input).toHaveValue('AAPL')
+  it('renders actual symbol, name, exchange and source from the array contract', async () => {
+    mount(); enter()
+    const link = await screen.findByRole('link', { name: /AAPL/ })
+    expect(link).toHaveTextContent('Apple Inc.')
+    expect(link).toHaveTextContent('NASDAQ')
+    expect(link).toHaveTextContent('stock · Source: test-fixture')
+    expect(screen.getByText('1 results')).toBeInTheDocument()
   })
-
-  it('renders search results tabs when query has results', async () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    
-    // Wait for debounce and query
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /All/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /Stocks/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /News/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /Events/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /Filings/i })).toBeInTheDocument()
-    })
+  it('debounces rapid query changes and requests only the latest term', async () => {
+    mount(); enter('AA'); enter('AAPL')
+    await screen.findByRole('link', { name: /AAPL/ })
+    expect(api.searchSymbols).toHaveBeenCalledTimes(1)
+    expect(api.searchSymbols).toHaveBeenCalledWith('AAPL')
   })
-
-  it('renders stock results in grid', async () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    
-    await waitFor(() => {
-      expect(screen.getByText(/AAPL/i)).toBeInTheDocument()
-      expect(screen.getByText(/Apple Inc./i)).toBeInTheDocument()
-      expect(screen.getByText(/NASDAQ/i)).toBeInTheDocument()
-    })
+  it('links the stock result to its research detail route', async () => {
+    mount(); enter()
+    expect(await screen.findByRole('link', { name: /AAPL/ })).toHaveAttribute('href', '/stocks/AAPL')
   })
-
-  it('switches between search result tabs', async () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /All/i })).toHaveAttribute('aria-selected', 'true')
-      
-      fireEvent.click(screen.getByRole('tab', { name: /Stocks/i }))
-      expect(screen.getByRole('tab', { name: /Stocks/i })).toHaveAttribute('aria-selected', 'true')
-      
-      fireEvent.click(screen.getByRole('tab', { name: /News/i }))
-      expect(screen.getByRole('tab', { name: /News/i })).toHaveAttribute('aria-selected', 'true')
-    })
+  it('renders absent metadata honestly rather than assuming NASDAQ or a company', async () => {
+    vi.mocked(api.searchSymbols).mockResolvedValue([{ ...result, name: null, exchange: null }])
+    mount(); enter()
+    const link = await screen.findByRole('link', { name: /AAPL/ })
+    expect(link).toHaveTextContent('Company name unavailable')
+    expect(link).toHaveTextContent('Exchange unavailable')
+    expect(screen.queryByText('NASDAQ')).not.toBeInTheDocument()
   })
-
-  it('links stock result to stock page', async () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    
-    await waitFor(() => {
-      const link = screen.getByRole('link', { name: /AAPL/i })
-      expect(link).toHaveAttribute('href', '/stocks/AAPL')
-    })
+  it('distinguishes successful empty results from request failure', async () => {
+    vi.mocked(api.searchSymbols).mockResolvedValue([])
+    mount(); enter('ZZZZ')
+    expect(await screen.findByText('No matching stocks available.')).toBeInTheDocument()
+    expect(screen.getByText('0 results')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
-
-  it('shows news search not implemented message', async () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    
-    await waitFor(() => {
-      fireEvent.click(screen.getByRole('tab', { name: /News/i }))
-      expect(screen.getByText(/News search not yet implemented/i)).toBeInTheDocument()
-    })
+  it('shows an explicit error and retries through the real query client', async () => {
+    vi.mocked(api.searchSymbols).mockRejectedValueOnce(new Error('provider down')).mockResolvedValue([result])
+    mount(); enter()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load matching stocks. Try again; this is not an empty result.')
+    expect(screen.queryByText('No matching stocks available.')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry search' }))
+    expect(await screen.findByRole('link', { name: /AAPL/ })).toHaveAttribute('href', '/stocks/AAPL')
+    expect(api.searchSymbols).toHaveBeenCalledTimes(2)
   })
-
-  it('shows events search not implemented message', async () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    
-    await waitFor(() => {
-      fireEvent.click(screen.getByRole('tab', { name: /Events/i }))
-      expect(screen.getByText(/Events search not yet implemented/i)).toBeInTheDocument()
-    })
+  it('accepts single-character symbols supported by the frozen search contract', async () => {
+    vi.mocked(api.searchSymbols).mockResolvedValue([{ ...result, symbol: 'F' }])
+    mount(); enter('F')
+    expect(await screen.findByRole('link', { name: /^F / })).toHaveAttribute('href', '/stocks/F')
+    expect(api.searchSymbols).toHaveBeenCalledWith('F')
   })
-
-  it('shows filings search not implemented message', async () => {
-    render(<SearchPage />)
-    const input = screen.getByPlaceholderText(/Search stocks, news, events, filings/i)
-    fireEvent.change(input, { target: { value: 'AAPL' } })
-    
-    await waitFor(() => {
-      fireEvent.click(screen.getByRole('tab', { name: /Filings/i }))
-      expect(screen.getByText(/Filings search not yet implemented/i)).toBeInTheDocument()
-    })
+  it('clearing a completed query removes stale results and makes no blank request', async () => {
+    mount(); enter()
+    await screen.findByRole('link', { name: /AAPL/ })
+    enter(' ')
+    await waitFor(() => expect(screen.getByText(/Coverage depends on the connected provider/)).toBeInTheDocument())
+    expect(screen.queryByRole('link', { name: /AAPL/ })).not.toBeInTheDocument()
+    expect(api.searchSymbols).toHaveBeenCalledTimes(1)
   })
 })

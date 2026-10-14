@@ -1,7 +1,8 @@
 """Calendar service for .ics export."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional, List
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ from trading_copilot.calendar.models import (
     CalendarExportResponse,
     CalendarExportFormat,
 )
+from trading_copilot.calendar.security import require_property_value, safe_calendar_url
 
 
 class CalendarService:
@@ -24,7 +26,8 @@ class CalendarService:
     def export_events(self, request: CalendarExportRequest) -> CalendarExportResponse:
         """Export events to calendar format."""
         events = self._fetch_events(request)
-        calendar_events = [self._to_calendar_event(e) for e in events]
+        converted = [self._to_calendar_event(e) for e in events]
+        calendar_events = [e for e in converted if e is not None]
 
         if request.format == CalendarExportFormat.ICS:
             content = self._generate_ics(calendar_events)
@@ -38,6 +41,7 @@ class CalendarService:
             content=content,
             filename=filename,
             event_count=len(calendar_events),
+            skipped_event_count=len(events) - len(calendar_events),
         )
 
     def _fetch_events(self, request: CalendarExportRequest) -> List:
@@ -61,73 +65,73 @@ class CalendarService:
                 EventType.CORPORATE_ACTION,
             ]
 
-        for et in event_types:
-            events = self.event_store.events_by_type(et, limit=1000)
-            all_events.extend(events)
+        for et in dict.fromkeys(event_types):
+            offset = 0
+            while True:
+                events = self.event_store.events_by_type(et, limit=1000, offset=offset)
+                all_events.extend(events)
+                if len(events) < 1000:
+                    break
+                offset += len(events)
 
         # Filter by symbols
         if request.symbols:
             all_events = [e for e in all_events if e.symbol in [s.upper() for s in request.symbols]]
 
         # Filter by date range
+        def bound_date(value):
+            return value.date() if isinstance(value, datetime) else value
+        if request.from_date and request.to_date and bound_date(request.from_date) > bound_date(request.to_date):
+            raise ValueError("From date must not be after to date")
         if request.from_date:
             all_events = [
                 e for e in all_events
-                if e.scheduled_at and e.scheduled_at >= request.from_date
+                if (e.scheduled_at or e.released_at) and (e.scheduled_at or e.released_at).date() >= bound_date(request.from_date)
             ]
         if request.to_date:
             all_events = [
                 e for e in all_events
-                if e.scheduled_at and e.scheduled_at <= request.to_date
+                if (e.scheduled_at or e.released_at) and (e.scheduled_at or e.released_at).date() <= bound_date(request.to_date)
             ]
 
         # Filter by importance
         if request.importance:
-            all_events = [e for e in all_events if e.importance.value in request.importance]
+            all_events = [e for e in all_events if e.importance.value in [i.lower() for i in request.importance]]
 
         # Sort by scheduled date
-        all_events.sort(key=lambda e: e.scheduled_at or datetime.max)
+        all_events.sort(key=lambda e: (e.scheduled_at or e.released_at).date() if (e.scheduled_at or e.released_at) else date.max)
 
         return all_events
 
-    def _to_calendar_event(self, event) -> CalendarEvent:
+    def _to_calendar_event(self, event) -> Optional[CalendarEvent]:
         """Convert MarketEvent to CalendarEvent with proper time semantics."""
-        # Check if event has exact time (scheduled_at with time component, or released_at with time)
-        has_exact_time = False
-        dtstart = None
-
-        if event.scheduled_at:
-            dtstart = event.scheduled_at
-            # Check if it has a time component (not midnight UTC)
-            if dtstart.hour != 0 or dtstart.minute != 0 or dtstart.second != 0:
-                has_exact_time = True
-        elif event.released_at:
-            dtstart = event.released_at
-            # Check if it has a time component
-            if dtstart.hour != 0 or dtstart.minute != 0 or dtstart.second != 0:
-                has_exact_time = True
-
-        # If no scheduled time at all, use released_at or date-only
+        dtstart = event.scheduled_at or event.released_at
         if dtstart is None:
-            dtstart = event.released_at or datetime.now()
+            return None
+        # An untrusted identity must not be repaired into a different UID. Omit
+        # that export record, count it as skipped, and leave its evidence intact.
+        try:
+            require_property_value(event.event_id, "UID")
+        except ValueError:
+            return None
+        metadata = event.metadata or {}
+        session = metadata.get("session") or metadata.get("time")
+        precision = metadata.get("scheduled_time_precision" if event.scheduled_at else "release_time_precision", metadata.get("time_precision"))
+        # Precision is explicit, never inferred from an hour. Legacy providers may
+        # encode sessions or estimated macro hours as timestamps. Conservatively
+        # export a date unless source-supported precision is explicitly recorded.
+        has_exact_time = precision in ("exact", "exact_time", "datetime")
+        if session or precision in ("date", "date_only", "session", "unknown", "filing_accepted"):
             has_exact_time = False
+        if has_exact_time and dtstart.tzinfo is None:
+            dtstart = dtstart.replace(tzinfo=ZoneInfo(event.timezone))
 
         # For date-only events (no exact time), use all-day event (DATE value in iCalendar)
         # For events with exact time, use timed event
         is_all_day = not has_exact_time
 
-        # Default duration for timed events
-        duration = timedelta(minutes=30)
-        if event.event_type == EventType.MACRO:
-            title_lower = event.title.lower() if event.title else ""
-            if any(term in title_lower for term in ["fomc", "cpi", "nfm", "payroll", "gdp", "pce"]):
-                duration = timedelta(hours=2)
-            else:
-                duration = timedelta(hours=1)
-        elif event.event_type in [EventType.EARNINGS, EventType.EARNINGS_RESULT]:
-            duration = timedelta(hours=1)
-
-        dtend = dtstart + duration if has_exact_time else None
+        # Source rarely supplies an end time; do not invent a duration.
+        dtend = None
 
         # Build description with session semantics preserved
         description_parts = []
@@ -143,7 +147,7 @@ class CalendarService:
         # Preserve BMO/AMC session semantics in description
         session_info = None
         if event.metadata:
-            session_info = event.metadata.get('release_time_source') or event.metadata.get('session')
+            session_info = event.metadata.get('session') or event.metadata.get('time')
         if session_info:
             description_parts.append(f"Session: {session_info}")
         elif event.event_type == EventType.EARNINGS:
@@ -156,6 +160,11 @@ class CalendarService:
 
         if event.source_url:
             description_parts.append(f"Source: {event.source_url}")
+        description_parts.append(f"Source provider: {event.source}; source ID: {event.source_id or 'unavailable'}")
+        description_parts.append(f"Retrieved/last seen: {event.last_seen_at.isoformat()}")
+        description_parts.append("Time precision: exact" if has_exact_time else "Time precision: date/session only; exact time unavailable")
+        if metadata.get("release_time_precision") == "filing_accepted":
+            description_parts.append("SEC filing acceptance is not the announcement release time.")
 
         # Categories
         categories = [event.event_type.value]
@@ -168,8 +177,8 @@ class CalendarService:
             description="\n".join(description_parts) if description_parts else None,
             dtstart=dtstart,
             dtend=dtend,
-            dtstamp=datetime.now(),
-            url=event.source_url,
+            dtstamp=datetime.now(timezone.utc),
+            url=safe_calendar_url(event.source_url),
             categories=categories,
             all_day=is_all_day,
         )
@@ -187,8 +196,12 @@ class CalendarService:
         ]
 
         for event in events:
+            uid = require_property_value(event.uid, "UID")
+            categories = [require_property_value(cat, "category") for cat in event.categories]
+            if event.url is not None and safe_calendar_url(event.url) is None:
+                raise ValueError("Invalid calendar URL")
             lines.append("BEGIN:VEVENT")
-            lines.append(f"UID:{event.uid}")
+            lines.append(f"UID:{self._escape_ics(uid)}")
             lines.append(f"DTSTAMP:{self._format_dt(event.dtstamp)}")
             if event.all_day:
                 # All-day event uses DATE format (YYYYMMDD)
@@ -207,19 +220,28 @@ class CalendarService:
                 lines.append(f"LOCATION:{self._escape_ics(event.location)}")
             if event.url:
                 lines.append(f"URL:{event.url}")
-            for cat in event.categories:
-                lines.append(f"CATEGORIES:{cat}")
+            if categories:
+                lines.append("CATEGORIES:" + ",".join(self._escape_ics(cat) for cat in categories))
             lines.append("END:VEVENT")
 
         lines.append("END:VCALENDAR")
 
-        return "\r\n".join(lines) + "\r\n"
+        folded = []
+        for line in lines:
+            chunk = ""
+            for character in line:
+                if len((chunk + character).encode("utf-8")) > 75:
+                    folded.append(chunk)
+                    chunk = " "
+                chunk += character
+            folded.append(chunk)
+        return "\r\n".join(folded) + "\r\n"
 
     def _format_dt(self, dt: datetime) -> str:
         """Format datetime for iCalendar (UTC)."""
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=None)
-        return dt.strftime("%Y%m%dT%H%M%SZ")
+            raise ValueError("Exact calendar timestamps require a timezone")
+        return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     def _format_date(self, dt: datetime) -> str:
         """Format date for iCalendar (DATE format YYYYMMDD)."""
@@ -229,4 +251,9 @@ class CalendarService:
 
     def _escape_ics(self, text: str) -> str:
         """Escape text for iCalendar format."""
-        return text.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n").replace("\r", "")
+        import unicodedata
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        # Retained evidence is untouched. Unrepresentable text controls are
+        # displayed as codepoints rather than embedded in the exported file.
+        text = "".join(f"[U+{ord(c):04X}]" if unicodedata.category(c) in ("Cc", "Cf") and c not in "\n\t" else c for c in text)
+        return text.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")

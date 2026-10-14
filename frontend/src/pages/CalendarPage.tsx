@@ -16,7 +16,7 @@ const EVENT_TYPES = [
   { value: 'corporate_action', label: 'Corporate Action' },
 ]
 
-const IMPORTANCE_LEVELS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
+const IMPORTANCE_LEVELS = ['critical', 'high', 'medium', 'low']
 
 export function CalendarPage() {
   const [showExportModal, setShowExportModal] = useState(false)
@@ -45,14 +45,12 @@ export function CalendarPage() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     },
-    onError: (error) => {
-      console.error('Calendar export failed:', error)
-      alert('Failed to export calendar. Please try again.')
-    },
   })
 
   const handleExport = (e: React.FormEvent) => {
     e.preventDefault()
+    if (exportRequest.from_date && exportRequest.to_date && exportRequest.from_date > exportRequest.to_date) return
+    setExportResult(null)
     exportMutation.mutate(exportRequest)
   }
 
@@ -124,12 +122,11 @@ export function CalendarPage() {
             <li><strong>Importance:</strong> Filter by CRITICAL, HIGH, MEDIUM, LOW</li>
           </ul>
 
-          <h3>Event Duration Logic</h3>
+           <h3>Date and time precision</h3>
           <ul className="filter-options">
-            <li><strong>Major Macro Events (FOMC, CPI, NFP, GDP, PCE):</strong> 2 hours</li>
-            <li><strong>Earnings Events:</strong> 1 hour</li>
-            <li><strong>Other Events:</strong> 30 minutes default</li>
-            <li><strong>Unknown Exact Time:</strong> Events with unknown exact time are exported with default duration</li>
+             <li><strong>Exact time:</strong> Source-supported timestamps are converted to UTC. No event duration is invented.</li>
+             <li><strong>Date only:</strong> Exported as an all-day date, not a midnight release.</li>
+             <li><strong>Unknown date or invalid event identity:</strong> Omitted from the calendar, never assigned today's date. Unsafe source links are not exported as clickable URLs; retained evidence is unchanged.</li>
             <li><strong>BMO/AMC Semantics:</strong> Before Market Open / After Market Close are preserved as session indicators, not exact times</li>
           </ul>
         </div>
@@ -159,8 +156,9 @@ export function CalendarPage() {
           </div>
 
           <div className="form-section">
-            <h3>Symbols (Optional)</h3>
+            <label htmlFor="calendar-symbols">Symbols (Optional)</label>
             <input
+              id="calendar-symbols"
               type="text"
               placeholder="AAPL, MSFT, GOOGL (comma-separated)"
               value={exportRequest.symbols?.join(', ') || ''}
@@ -203,12 +201,15 @@ export function CalendarPage() {
                     checked={exportRequest.importance?.includes(level) || false}
                     onChange={(e) => handleCheckboxChange('importance', level, e.target.checked)}
                   />
-                  <span>{level}</span>
+                  <span>{level.toUpperCase()}</span>
                 </label>
               ))}
             </div>
           </div>
 
+          {exportRequest.from_date && exportRequest.to_date && exportRequest.from_date > exportRequest.to_date && <p role="alert" className="error-message">From date must not be after to date.</p>}
+          {exportMutation.isError && <p role="alert" className="error-message">Calendar export failed. Check the filters and try again.</p>}
+          <p className="form-hint">No checked boxes means all types/importance levels. Date bounds include the entire day.</p>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={() => setShowExportModal(false)}>
               Cancel

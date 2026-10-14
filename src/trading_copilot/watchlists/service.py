@@ -65,7 +65,10 @@ class WatchlistService:
     def add_item(self, watchlist_id: str, item: WatchlistItemCreate) -> WatchlistItem:
         """Add a symbol to a watchlist."""
         # Normalize symbol
+        import re
         item.symbol = item.symbol.upper().strip()
+        if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", item.symbol):
+            raise ValueError("Invalid symbol format")
         return self.store.add_item(watchlist_id, item)
 
     def update_item(self, watchlist_id: str, symbol: str, update: WatchlistItemUpdate) -> Optional[WatchlistItem]:

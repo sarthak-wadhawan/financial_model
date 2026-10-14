@@ -140,17 +140,39 @@ class InterpretationEngine:
                 result["insider_signals"].append(event.metadata)
         return result
 
-    def _analyze_management_statements(self, symbol: str) -> list:
-        """Analyze management statements from Phase 8."""
-        # This would query the management statements from event store
-        # For now, return empty - to be integrated with Phase 8 data
-        return []
+    def _analyze_management_statements(self, symbol: str, events: list[MarketEvent]) -> list:
+        """Consume explicit Phase 8 payloads only; never infer speakers or quotes."""
+        from pydantic import ValidationError
+        from trading_copilot.models.news import ManagementStatement
+        statements = []
+        for event in events:
+            for payload in event.metadata.get("management_statements", []) or []:
+                try:
+                    statement = ManagementStatement.model_validate(payload)
+                except (ValidationError, TypeError):
+                    continue
+                if statement.symbol.upper() == symbol and statement.evidence_span and statement.evidence_span.text:
+                    statements.append(statement.model_dump(mode="json"))
+        return statements
 
-    def _analyze_news_claims(self, symbol: str) -> list:
-        """Analyze news evidence claims from Phase 8."""
-        # This would query evidence claims from event store
-        # For now, return empty - to be integrated with Phase 8 data
-        return []
+    def _analyze_news_claims(self, symbol: str, events: list[MarketEvent]) -> list:
+        """Use verified stored claims or attributed news headlines, not sentiment inference."""
+        from pydantic import ValidationError
+        from trading_copilot.models.news import EvidenceClaim, VerificationStatus
+        claims = []
+        for event in events:
+            for payload in event.metadata.get("evidence_claims", []) or []:
+                try:
+                    claim = EvidenceClaim.model_validate(payload)
+                except (ValidationError, TypeError):
+                    continue
+                if (claim.symbol.upper() == symbol and claim.verification_status == VerificationStatus.VERIFIED
+                        and claim.evidence_span and claim.evidence_span.text):
+                    claims.append(claim.model_dump(mode="json"))
+            if event.event_type == EventType.NEWS and event.source_url:
+                claims.append({"claim": event.title, "source": event.source, "source_url": event.source_url,
+                               "claim_type": "reported_headline", "event_id": event.event_id})
+        return claims
 
     def _determine_company_impact(self, symbol: str, all_evidence: dict) -> tuple:
         """Determine company impact from all evidence."""
@@ -687,6 +709,11 @@ class InterpretationEngine:
         if sec.get("leadership_change"):
             parts.append(f"leadership change: {sec['leadership_change']}")
 
+        for statement in all_evidence.get("management", []):
+            parts.append(f"{statement['speaker']} stated: {statement['statement']}")
+        for claim in all_evidence.get("news", []):
+            parts.append(f"Reported evidence: {claim['claim']}")
+
         if not parts:
             return "No material new events in period"
 
@@ -773,26 +800,14 @@ class InterpretationEngine:
         symbol = request.symbol.upper()
         as_of = request.as_of or datetime.now(timezone.utc)
 
-        # Fetch all relevant events for the symbol
-        events = self.event_store.events_for_symbol(
-            symbol=symbol,
-            event_types=None,
-            limit=500,
-        )
-
-        # Also fetch macro events (symbol=None)
-        macro_events = self.event_store.events_by_type(
-            event_type=EventType.MACRO,
-            limit=100,
-        )
-
-        # Combine all events
-        all_events = events + macro_events
-
-        # Filter by as_of if provided
-        if request.as_of:
-            all_events = [e for e in all_events if (e.released_at or e.scheduled_at) and
-                         (e.released_at or e.scheduled_at) <= request.as_of]
+        # Reconstruct point-in-time state using first_seen_at and revisions.
+        # events_as_of already filters by first_seen_at, applies revision rollback,
+        # and validates evidence provenance timestamps. No additional release/scheduled
+        # date filter is needed — that would leak revised values backward.
+        all_events = [e for e in self.event_store.events_as_of(as_of)
+                      if (e.symbol == symbol or e.event_type == EventType.MACRO)]
+        # Sort by effective release/scheduled time for deterministic ordering.
+        all_events.sort(key=lambda e: e.released_at or e.scheduled_at or datetime.min.replace(tzinfo=timezone.utc))
 
         # Filter by focus events if provided
         if request.focus_events:
@@ -803,8 +818,8 @@ class InterpretationEngine:
             "earnings": self._analyze_earnings_events(symbol, [e for e in all_events if e.event_type.value.startswith("earnings")]),
             "macro": self._analyze_macro_events([e for e in all_events if e.event_type.value == "macro"]),
             "sec": self._analyze_sec_events(symbol, [e for e in all_events if e.event_type.value in ["sec_filing", "leadership", "insider"]]),
-            "management": self._analyze_management_statements(symbol),
-            "news": self._analyze_news_claims(symbol),
+            "management": self._analyze_management_statements(symbol, all_events),
+            "news": self._analyze_news_claims(symbol, all_events),
             "quant": self._extract_quant_context(symbol, request.as_of),
         }
 
@@ -822,7 +837,7 @@ class InterpretationEngine:
         why_it_matters = self._build_why_it_matters(symbol, all_evidence)
 
         # Build evidence references
-        evidence_refs = self._get_evidence_refs(events)
+        evidence_refs = self._get_evidence_refs(all_events)
 
         # Overall confidence
         confidence = min(company_impact.confidence, stock_impact.confidence)
@@ -885,6 +900,8 @@ class InterpretationEngine:
             missing.append("No recent management statements")
         if not all_evidence.get("news"):
             missing.append("No recent news evidence")
+        if all_evidence.get("quant", {}).get("quant_score") is None:
+            missing.append("No point-in-time quant context connected to interpretation")
         return missing
 
 

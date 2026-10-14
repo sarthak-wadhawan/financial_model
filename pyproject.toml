@@ -34,6 +34,20 @@ alpaca = [
 duckdb = [
     "duckdb>=1.0",
 ]
+web = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "feedparser>=6.0",
+    "email-validator>=2.1",
+]
+full = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "feedparser>=6.0",
+    "email-validator>=2.1",
+    "alpaca-py>=0.33",
+    "duckdb>=1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

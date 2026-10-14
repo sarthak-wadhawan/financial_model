@@ -511,6 +511,8 @@ class AnswerEngine:
         }
 
         handler = handlers.get(question_type, self._answer_generic)
+        if question_type == "generic":
+            return handler(symbol, question, interpretation)
         return handler(symbol, interpretation)
 
 

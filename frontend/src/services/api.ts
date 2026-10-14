@@ -30,17 +30,17 @@ class ApiClient {
     return response.data
   }
 
-  async post<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+  async post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.client.post<T>(url, data, config)
     return response.data
   }
 
-  async put<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+  async put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.client.put<T>(url, data, config)
     return response.data
   }
 
-  async patch<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+  async patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.client.patch<T>(url, data, config)
     return response.data
   }
@@ -61,6 +61,10 @@ class ApiClient {
     })
   }
 
+  async refreshMarketData(symbols: string[]) {
+    return this.post<{ status: string; symbols: string[]; state: Record<string, unknown> }>('/market/refresh', { symbols })
+  }
+
   // Symbols
   async searchSymbols(query: string, limit?: number) {
     return this.get<SymbolSearchResult[]>('/symbols/search', {
@@ -79,8 +83,8 @@ class ApiClient {
     })
   }
 
-  async answerQuestion(symbol: string, question: string) {
-    return this.post<Answer>(`/stocks/${symbol}/answer`, { question })
+  async answerQuestion(symbol: string, question: string, context?: Record<string, unknown>) {
+    return this.post<Answer>(`/stocks/${symbol}/answer`, { question, context })
   }
 
   async getEarnings(symbol: string) {
@@ -119,6 +123,10 @@ class ApiClient {
 
   async getQuantScannerTop(n: number) {
     return this.get<QuantCandidate[]>(`/scanner/top`, { params: { n } })
+  }
+
+  async getScannerStatus() {
+    return this.get<DataAvailability & { calculated_at: string | null; universe_size: number }>('/scanner/status')
   }
 
   // Macro events
@@ -277,14 +285,25 @@ export const api = new ApiClient()
 
 // Type definitions for API responses
 export interface MarketOverviewResponse {
+  timestamp: string
+  mode: 'real' | 'demo'
+  source: string
+  source_url: string | null
+  reason: string | null
+  market_data_status: string
+  quant_scanner_status: string
   market_status: string
-  snapshot_time: string
+  snapshot_time: string | null
   symbols_tracked: number
   indices: Array<{
     symbol: string
     price: number
     change: number
     change_pct: number
+    market_timestamp: string
+    retrieved_at: string
+    source: string
+    price_kind: string
   }>
   top_gainers: Array<{
     symbol: string
@@ -303,8 +322,19 @@ export interface MarketOverviewResponse {
   }>
 }
 
-export interface BarData {
+export interface DataAvailability {
+  status: string
+  reason: string | null
+  mode: 'real' | 'demo'
+  source: string
+  source_url?: string | null
+  market_timestamp?: string | null
+  retrieved_at?: string | null
+}
+
+export interface BarData extends DataAvailability {
   symbol: string
+  timeframe: string
   bars: Array<{
     t: string
     o: number
@@ -317,22 +347,27 @@ export interface BarData {
 
 export interface SymbolSearchResult {
   symbol: string
-  name: string
-  exchange: string
+  name: string | null
+  exchange: string | null
   type: string
+  source: string
 }
 
 export interface StockDetail {
   symbol: string
-  name: string
-  exchange: string
-  price: number
-  change: number
-  change_pct: number
-  volume: number
-  market_cap: number
+  name: string | null
+  exchange: string | null
+  price: number | null
+  change: number | null
+  change_pct: number | null
+  volume: number | null
+  market_cap: number | null
   pe_ratio: number | null
   dividend_yield: number | null
+  price_data: DataAvailability & { price_kind: string }
+  quant_signals: QuantSignals
+  interpretation: Interpretation
+  events: CompanyEvent[]
 }
 
 export interface Interpretation {
@@ -359,17 +394,17 @@ export interface Interpretation {
   }
   base_case: {
     description: string
-    probability_band: string
+    probability_band: string | null
     required_conditions: string[]
   }
   bull_case: {
     description: string
-    probability_band: string
+    probability_band: string | null
     required_conditions: string[]
   }
   bear_case: {
     description: string
-    probability_band: string
+    probability_band: string | null
     required_conditions: string[]
   }
   what_would_change_view: Array<{
@@ -379,21 +414,25 @@ export interface Interpretation {
   confidence: number
   confidence_reasons: string[]
   missing_information: string[]
-  supporting_evidence: Array<{
-    source_type: string
-    url: string
-    description: string
-    timestamp: string
-  }>
+  supporting_evidence: EvidenceRef[]
+  generated_at: string
+  engine_version: string
+}
+
+export interface EvidenceRef {
+  evidence_id: string
+  source_type: string
+  url: string | null
+  description: string
+  timestamp: string | null
 }
 
 export interface Answer {
-  answer_id: string
-  symbol: string
   question: string
   answer: string
   confidence: number
-  evidence_refs: string[]
+  evidence_refs: EvidenceRef[]
+  generated_at: string
 }
 
 export interface EarningsEvent {
@@ -422,7 +461,7 @@ export interface EarningsEvent {
 
 export interface CompanyEvent {
   event_id: string
-  symbol: string
+  symbol: string | null
   event_type: string
   title: string
   description: string | null
@@ -431,35 +470,28 @@ export interface CompanyEvent {
   importance: string
   source: string
   source_url: string | null
+  source_id: string | null
+  status: string
+  timezone: string
+  actual: string | null
+  forecast: string | null
+  previous: string | null
+  unit: string | null
+  first_seen_at: string
+  last_seen_at: string
+  created_at: string
+  updated_at: string
+  content_hash: string
+  metadata: Record<string, unknown>
 }
 
-export interface NewsEvent {
-  document_id: string
-  headline: string
-  summary: string | null
-  publisher: string
-  published_at: string
-  source_url: string
-  source_type: string
-}
+export type NewsEvent = CompanyEvent
 
-export interface InsiderTransaction {
-  transaction_id: string
-  name: string
-  role: string
-  transaction_type: string
-  shares: number
-  price: number | null
-  transaction_value: number | null
-  is_10b5_1: boolean
-  holdings_after: number | null
-  transaction_date: string
-}
+export type InsiderTransaction = CompanyEvent
 
 export interface LeadershipData {
-  ceo: string | null
-  cfo: string | null
-  [key: string]: string | null
+  symbol: string
+  leadership: Record<string, { name: string | null; effective_date: string | null; event_id: string; source: string; source_url: string | null; released_at: string | null }>
 }
 
 export interface Filing {
@@ -473,7 +505,13 @@ export interface Filing {
   source_url: string | null
 }
 
-export interface QuantSignals {
+export interface QuantSignals extends DataAvailability {
+  symbol: string
+  quant_score: number | null
+  rank: number | null
+  universe_size: number | null
+  components: Record<string, number>
+  calculated_at: string | null
   signals: Record<string, number>
 }
 
@@ -488,6 +526,11 @@ export interface QuantCandidate {
   volatility_quality_score: number
   price: number
   avg_dollar_volume_20d: number
+  components: Record<string, number>
+  calculated_at: string
+  market_timestamp: string
+  source: string
+  mode: 'real' | 'demo'
 }
 
 export interface MacroEventResponse {
@@ -527,10 +570,11 @@ export interface Event {
 
 export interface TermDefinition {
   term: string
-  definition: string
+  short_definition: string
+  long_definition: string | null
   category: string
-  source: string
-  source_url: string
+  reference_type: string
+  external_reference_url: string | null
   related_terms: string[]
 }
 
@@ -614,7 +658,7 @@ export interface Alert {
   channels: ('in_app' | 'email' | 'webhook')[]
   is_active: boolean
   cooldown_minutes: number
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
   created_at: string
   updated_at: string
   last_triggered: string | null
@@ -633,7 +677,7 @@ export interface AlertCreate {
   channels?: ('in_app' | 'email' | 'webhook')[]
   is_active?: boolean
   cooldown_minutes?: number
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 export interface AlertUpdate {
@@ -647,7 +691,7 @@ export interface AlertUpdate {
   channels?: ('in_app' | 'email' | 'webhook')[]
   is_active?: boolean
   cooldown_minutes?: number
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 export interface AlertTrigger {
@@ -662,7 +706,7 @@ export interface AlertTrigger {
   triggered_at: string
   acknowledged: boolean
   acknowledged_at: string | null
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
 }
 
 export interface AlertTestRequest {
@@ -672,6 +716,6 @@ export interface AlertTestRequest {
 export interface AlertTestResponse {
   would_trigger: boolean
   symbols_checked: string[]
-  current_values: Record<string, any>
+  current_values: Record<string, unknown>
   message?: string
 }

@@ -1,214 +1,36 @@
 import { Link } from 'react-router-dom'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { format } from 'date-fns'
+import { api } from '../services/api'
+import { DataStatus, displayDate, displayNumber, record, SourceLink, text } from '../components/ui/ResearchData'
 
 export function LandingPage() {
-  const { data: macroEvents } = useQuery({
-    queryKey: ['macroEvents', 'upcoming'],
-    queryFn: () => fetch('/api/v1/events/upcoming?days=30&limit=10').then(r => r.json()),
-    staleTime: 1000 * 60 * 5,
+  const [{ today, fromDate, toDate }] = useState(() => {
+    const now = Date.now()
+    return { today: new Date(now).toISOString().slice(0, 10), fromDate: new Date(now - 7 * 86400000).toISOString().slice(0, 10), toDate: new Date(now + 30 * 86400000).toISOString().slice(0, 10) }
   })
-
-  const { data: topCandidates } = useQuery({
-    queryKey: ['topCandidates'],
-    queryFn: () => fetch('/api/v1/scanner/top?n=5').then(r => r.json()),
-    staleTime: 1000 * 60 * 5,
-  })
-
-  const { data: recentEvents } = useQuery({
-    queryKey: ['recentEvents', 7],
-    queryFn: () => fetch('/api/v1/events/recent?days=7&limit=10').then(r => r.json()),
-    staleTime: 1000 * 60 * 5,
-  })
-
-  return (
-    <div className="landing-page">
-      <section className="hero">
-        <div className="hero-content">
-          <h1>Trading Copilot</h1>
-          <p className="hero-subtitle">
-            Deterministic financial intelligence. Evidence-first research for individual investors.
-          </p>
-          <div className="hero-actions">
-            <Link to="/scanner" className="btn btn-primary btn-lg">
-              Launch Scanner
-            </Link>
-            <Link to="/search" className="btn btn-secondary btn-lg">
-              Search Stocks
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      <section className="section market-overview">
-        <div className="section-header">
-          <h2>Market Overview</h2>
-          <Link to="/macro" className="link">View all macro events →</Link>
-        </div>
-        <div className="metrics-grid">
-          <div className="metric-card">
-            <span className="metric-label">S&P 500 (SPY)</span>
-            <span className="metric-value">—</span>
-            <span className="metric-change neutral">—</span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-label">VIX</span>
-            <span className="metric-value">—</span>
-            <span className="metric-change neutral">—</span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-label">DXY</span>
-            <span className="metric-value">—</span>
-            <span className="metric-change neutral">—</span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-label">10Y Yield</span>
-            <span className="metric-value">—</span>
-            <span className="metric-change neutral">—</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="section upcoming-macro">
-        <div className="section-header">
-          <h2>Upcoming Macro Events</h2>
-          <Link to="/macro" className="link">View all →</Link>
-        </div>
-        <div className="events-list">
-          {macroEvents?.slice(0, 5).map((event: any) => (
-            <div key={event.event_id} className="event-item">
-              <div className="event-date">
-                <span className="event-day">{event.scheduled_at ? new Date(event.scheduled_at).getDate() : '—'}</span>
-                <span className="event-month">{event.scheduled_at ? new Date(event.scheduled_at).toLocaleString('default', { month: 'short' }) : '—'}</span>
-              </div>
-              <div className="event-info">
-                <span className="event-title">{event.title}</span>
-                <span className="event-source">{event.source}</span>
-              </div>
-              <div className="event-importance">
-                <span className={`importance-badge ${event.importance?.toLowerCase()}`}>
-                  {event.importance}
-                </span>
-              </div>
-            </div>
-          ))}
-          {(!macroEvents || macroEvents.length === 0) && (
-            <div className="empty-state">No upcoming macro events</div>
-          )}
-        </div>
-      </section>
-
-      <section className="section top-candidates">
-        <div className="section-header">
-          <h2>Top Scanner Candidates</h2>
-          <Link to="/scanner" className="link">View scanner →</Link>
-        </div>
-        <div className="candidates-table-container">
-          <table className="candidates-table">
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Symbol</th>
-                <th>Score</th>
-                <th>Momentum</th>
-                <th>Trend</th>
-                <th>Liquidity</th>
-                <th>Volume</th>
-                <th>Vol Quality</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topCandidates?.map((candidate: any) => (
-                <tr key={candidate.symbol}>
-                  <td className="rank">#{candidate.rank || '—'}</td>
-                  <td><Link to={`/stocks/${candidate.symbol}`} className="symbol-link">{candidate.symbol}</Link></td>
-                  <td className="score">{candidate.quant_score?.toFixed(1) || '—'}</td>
-                  <td>{candidate.momentum_score?.toFixed(1) || '—'}</td>
-                  <td>{candidate.trend_score?.toFixed(1) || '—'}</td>
-                  <td>{candidate.liquidity_score?.toFixed(1) || '—'}</td>
-                  <td>{candidate.volume_score?.toFixed(1) || '—'}</td>
-                  <td>{candidate.volatility_quality_score?.toFixed(1) || '—'}</td>
-                </tr>
-              ))}
-              {(!topCandidates || topCandidates.length === 0) && (
-                <tr><td colSpan={8} className="empty-state">No candidates available</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="section recent-events">
-        <div className="section-header">
-          <h2>Recent Company Events</h2>
-          <Link to="/search" className="link">View all →</Link>
-        </div>
-        <div className="events-list">
-          {recentEvents?.map((event: any) => (
-            <div key={event.event_id} className="event-item">
-              <div className="event-meta">
-                <span className="event-symbol">{event.symbol}</span>
-                <span className="event-time">{event.released_at ? format(new Date(event.released_at), 'MMM d, HH:mm') : 'Pending'}</span>
-              </div>
-              <Link to={`/stocks/${event.symbol}`} className="event-title">
-                {event.title}
-              </Link>
-              <span className={`importance-badge ${event.importance?.toLowerCase()}`}>
-                {event.importance}
-              </span>
-            </div>
-          ))}
-          {(!recentEvents || recentEvents.length === 0) && (
-            <div className="empty-state">No recent events</div>
-          )}
-        </div>
-      </section>
-
-      <section className="section features">
-        <h2>Why Trading Copilot?</h2>
-        <div className="features-grid">
-          <div className="feature-card">
-            <div className="feature-icon">📊</div>
-            <h3>Deterministic Intelligence</h3>
-            <p>No hallucinations. Every claim traced to primary sources with evidence.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon">🔍</div>
-            <h3>Evidence-First</h3>
-            <p>Every claim traced to SEC filings, earnings calls, macro data with citations.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon">⚖️</div>
-            <h3>Company ≠ Stock Impact</h3>
-            <p>Fundamental business impact separated from stock price bias with confidence.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon">🎯</div>
-            <h3>Scenario Analysis</h3>
-            <p>Base/Bull/Bear cases with explicit conditions and falsification criteria.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon">📚</div>
-            <h3>Term Definitions</h3>
-            <p>Hover any financial term for instant definition with authoritative source.</p>
-          </div>
-          <div className="feature-card">
-            <div className="feature-icon">🤖</div>
-            <h3>Zero-LLM Core</h3>
-            <p>All core functionality works without LLMs. Optional local AI only enhances.</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="section cta">
-        <h2>Start Your Research</h2>
-        <p>Evidence-first stock research. No hallucinations. No hidden agendas.</p>
-        <Link to="/scanner" className="btn btn-primary btn-lg">
-          Start Researching
-        </Link>
-      </section>
-    </div>
-  )
+  const market = useQuery({ queryKey: ['marketOverview'], queryFn: () => api.getMarketOverview() })
+  const macro = useQuery({ queryKey: ['dashboardMacro', fromDate, toDate], queryFn: () => api.getMacroEvents({ from_date: fromDate, to_date: toDate, limit: 30 }) })
+  const scanner = useQuery({ queryKey: ['topCandidates'], queryFn: () => api.getQuantScannerTop(5) })
+  const recent = useQuery({ queryKey: ['recentEvents', 7], queryFn: () => api.getRecentEvents(7, 10) })
+  const watchlists = useQuery({ queryKey: ['watchlists'], queryFn: () => api.getWatchlists() })
+  const companyEvents = recent.data?.filter(event => typeof record(event).symbol === 'string')
+  const macroGroups = [
+    { label: `Today (${today}, UTC reference date)`, events: macro.data?.filter(event => (event.released_at ?? event.scheduled_at)?.slice(0, 10) === today) },
+    { label: 'Just released — last 7 days', events: macro.data?.filter(event => event.released_at && event.released_at.slice(0, 10) !== today && event.released_at.slice(0, 10) >= fromDate && event.released_at.slice(0, 10) < today) },
+    { label: 'Upcoming — next 30 days', events: macro.data?.filter(event => !event.released_at && event.scheduled_at && event.scheduled_at.slice(0, 10) > today) },
+    { label: 'Past schedule / release date unconfirmed', events: macro.data?.filter(event => !event.released_at && (!event.scheduled_at || event.scheduled_at.slice(0, 10) < today)) },
+  ]
+  return <div className="landing-page">
+    <section className="hero"><div className="hero-content"><h1>Your research dashboard</h1><p className="hero-subtitle">What matters, why it matters, and the evidence behind it. You make the final decision.</p><div className="hero-actions"><Link to="/search" className="btn btn-primary btn-lg">Search a company</Link><Link to="/scanner" className="btn btn-secondary btn-lg">Explore scanner</Link></div></div></section>
+    <section className="section market-overview"><div className="section-header"><h2>Market snapshot</h2><Link to="/macro" className="link">Macro calendar →</Link></div>
+      <DataStatus loading={market.isLoading} error={market.isError} label="market snapshot" />
+      {market.data && <><p className="data-status">Mode: {market.data.mode} · Data status: {market.data.market_data_status} · Market session: {market.data.market_status ?? 'Unavailable'} · Symbols tracked: {market.data.symbols_tracked ?? 'Unavailable'} · Retrieval date (not market time): {displayDate(market.data.snapshot_time)} · Source: {market.data.source}</p>{market.data.reason && <p className="data-status">{market.data.reason}</p>}<div className="metrics-grid">{market.data.indices?.map(index => <div key={index.symbol} className="metric-card"><span className="metric-label">{index.symbol} — daily close, not a live quote</span><strong className="metric-value">{displayNumber(index.price, 2)}</strong><span className="metric-change">{typeof index.change_pct === 'number' ? `${displayNumber(index.change_pct, 2)}%` : 'Change unavailable'}</span><small>Market date: {displayDate(index.market_timestamp)} · {index.source}</small></div>)}</div><DataStatus empty={!market.data.indices?.length} label="market index prices from the connected provider" /></>}
+    </section>
+    <section className="section upcoming-macro"><div className="section-header"><h2>Macro: releases & upcoming events</h2><Link to="/macro" className="link">View calendar →</Link></div><DataStatus loading={macro.isLoading} error={macro.isError} empty={macro.isSuccess && !macro.data?.length} label="macro events" />{macroGroups.filter(group => group.events?.length).map(group => <div key={group.label}><h3>{group.label}</h3><div className="events-list">{group.events?.map(event => <article key={event.event_id} className="event-item"><div className="event-info"><h4 className="event-title">{event.title}</h4><p>{event.released_at ? 'Released' : 'Scheduled'} date: {displayDate(event.released_at ?? event.scheduled_at)} · {event.status}</p><p className="event-source">Source: {event.source}{/(test|fixture|mock|demo)/i.test(event.source) ? ' — test/demo, not live' : ''}</p><SourceLink url={event.source_url}>Source evidence</SourceLink><p>Actual: {event.actual ?? 'Unknown'} · Forecast: {event.forecast ?? 'Unknown'} · Previous: {event.previous ?? 'Unknown'}</p></div><span className="importance-badge">{event.importance}</span></article>)}</div></div>)}</section>
+    <section className="section top-candidates"><div className="section-header"><h2>Top scanner candidates</h2><Link to="/scanner" className="link">Full scanner →</Link></div><DataStatus loading={scanner.isLoading} error={scanner.isError} empty={scanner.isSuccess && !scanner.data?.length} label="scanner candidates" />{!!scanner.data?.length && <div className="candidates-table-container"><table className="candidates-table"><caption>Deterministic rankings, not trading recommendations</caption><thead><tr><th scope="col">Rank</th><th scope="col">Symbol</th><th scope="col">Score</th><th scope="col">Momentum</th><th scope="col">Trend</th></tr></thead><tbody>{scanner.data.map(candidate => <tr key={candidate.symbol}><td>#{candidate.rank}</td><td><Link className="symbol-link" to={`/stocks/${candidate.symbol}`}>{candidate.symbol}</Link></td><td>{displayNumber(candidate.quant_score)}</td><td>{displayNumber(candidate.momentum_score)}</td><td>{displayNumber(candidate.trend_score)}</td></tr>)}</tbody></table></div>}</section>
+    <section className="section recent-events"><div className="section-header"><h2>Recent company events</h2><Link to="/search" className="link">Research a company →</Link></div><DataStatus loading={recent.isLoading} error={recent.isError} empty={recent.isSuccess && !companyEvents?.length} label="recent company events" /><div className="events-list">{companyEvents?.map(event => <article key={event.event_id} className="event-item"><div className="event-info"><h3><Link to={`/stocks/${encodeURIComponent(text(record(event).symbol))}`}>{event.title}</Link></h3><p>{event.event_type} · Publication date: {displayDate(event.released_at)} · Source: {event.source}{/(test|fixture|mock|demo)/i.test(event.source) ? ' — test/demo, not live' : ''}</p><SourceLink url={record(event).source_url} /></div></article>)}</div></section>
+    <section className="section"><div className="section-header"><h2>Your watchlists</h2><Link to="/watchlists" className="link">Manage watchlists →</Link></div><DataStatus loading={watchlists.isLoading} error={watchlists.isError} empty={watchlists.isSuccess && !watchlists.data?.length} label="watchlists — create one to organize your research" /><div className="features-grid">{watchlists.data?.map(list => <article className="feature-card" key={list.id}><h3><Link to={`/watchlists/${encodeURIComponent(list.id)}`}>{list.name}</Link></h3><p>{list.item_count} symbols{list.is_default ? ' · Default' : ''}</p><div className="hero-actions">{list.symbols?.map(symbol => <Link className="symbol-link" key={symbol} to={`/stocks/${symbol}`}>{symbol}</Link>)}</div></article>)}</div></section>
+  </div>
 }
-
 export default LandingPage

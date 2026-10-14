@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useSyncExternalStore, useCallback } from 'react'
 
 export function useClickOutside(
   ref: React.RefObject<HTMLElement>,
@@ -52,20 +52,12 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T 
 }
 
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false)
-
-  useEffect(() => {
+  const subscribe = useCallback((listener: () => void) => {
     const media = window.matchMedia(query)
-    if (media.matches !== matches) {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      setMatches(media.matches)
-    }
-    const listener = () => setMatches(media.matches)
     media.addEventListener('change', listener)
     return () => media.removeEventListener('change', listener)
-  }, [matches, query])
-
-  return matches
+  }, [query])
+  return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches, () => false)
 }
 
 export function useOnScreen(ref: React.RefObject<Element>, rootMargin = '0px') {
@@ -117,12 +109,9 @@ export function useKeyPress(targetKey: string, handler: () => void) {
 }
 
 export function usePrevious<T>(value: T): T | undefined {
-  const ref = useRef<T>()
-  useEffect(() => {
-    ref.current = value
-  }, [value])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return ref.current
+  const [state, setState] = useState<{ current: T; previous?: T }>({ current: value })
+  if (!Object.is(state.current, value)) setState({ current: value, previous: state.current })
+  return state.previous
 }
 
 export function useWindowSize() {

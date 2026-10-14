@@ -1,59 +1,77 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ScannerPage } from '../pages/ScannerPage'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { api, type MarketOverviewResponse, type QuantCandidate } from '../services/api'
+import { ScannerPage } from './ScannerPage'
 
-describe('ScannerPage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
+const candidate: QuantCandidate = { symbol: 'AAPL', rank: 7, quant_score: 85, momentum_score: 0, trend_score: 90, liquidity_score: 80, volume_score: 70, volatility_quality_score: 60, price: 0, avg_dollar_volume_20d: 1e6, components: {}, calculated_at: '2026-10-14', market_timestamp: '2026-10-13', source: 'test-fixture', mode: 'demo' }
+function mount() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  render(<QueryClientProvider client={client}><MemoryRouter><ScannerPage /></MemoryRouter></QueryClientProvider>)
+}
+beforeEach(() => {
+  vi.spyOn(api, 'getQuantScannerTop').mockResolvedValue([candidate])
+  vi.spyOn(api, 'getMarketOverview').mockResolvedValue({ timestamp: '2026-10-14', snapshot_time: '2026-10-14', mode: 'demo', source: 'test-fixture', source_url: null, reason: null, market_data_status: 'available', quant_scanner_status: 'available', market_status: 'unknown', symbols_tracked: 2, indices: [], top_gainers: [], top_losers: [], most_active: [] } satisfies MarketOverviewResponse)
+  vi.spyOn(api, 'getScannerStatus').mockResolvedValue({ status: 'available', reason: null, mode: 'demo', source: 'test-fixture', calculated_at: '2026-10-14', market_timestamp: '2026-10-13', universe_size: 2 })
+})
+afterEach(() => vi.restoreAllMocks())
+
+describe('ScannerPage actual provider rankings', () => {
+  it('renders deterministic research purpose and labelled result selector', () => {
+    mount()
+    expect(screen.getByRole('heading', { name: 'Quant Scanner' })).toBeInTheDocument()
+    expect(screen.getByText(/not price forecasts or trade recommendations/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Results')).toHaveValue('20')
+    for (const n of [10, 20, 50, 100]) expect(screen.getByRole('option', { name: `Top ${n}`, exact: true })).toBeInTheDocument()
   })
-
-  it('renders page title and subtitle', () => {
-    render(<ScannerPage />)
-    expect(screen.getByRole('heading', { name: /Quant Scanner/i })).toBeInTheDocument()
-    expect(screen.getByText(/Top ranked stocks by deterministic quant signals/i)).toBeInTheDocument()
+  it('shows actual market status and distinct scanner timestamps/source', async () => {
+    mount()
+    expect(await screen.findByText('unknown')).toBeInTheDocument()
+    expect(screen.getByText('Symbols tracked').parentElement).toHaveTextContent('2')
+    expect(screen.getByText('Calculation date').parentElement).toHaveTextContent('2026-10-14')
+    expect(screen.getByText(/Source: test-fixture · Market date: 2026-10-13/)).toBeInTheDocument()
   })
-
-  it('renders top N selector', () => {
-    render(<ScannerPage />)
-    expect(screen.getByLabelText(/Number of results/i)).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /Top 10/i })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /Top 20/i })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /Top 50/i })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /Top 100/i })).toBeInTheDocument()
+  it('renders exact component headers and backend rank/zero values', async () => {
+    mount()
+    await screen.findByText('#7')
+    for (const name of ['Rank', 'Symbol', 'Quant Score', 'Momentum', 'Trend', 'Liquidity', 'Volume', 'Vol Quality', 'Price']) expect(screen.getByRole('columnheader', { name })).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: '#7 AAPL 85.0 0.0 90.0 80.0 70.0 60.0 $0.00' })).toBeInTheDocument()
+    expect(screen.queryByText('#1')).not.toBeInTheDocument()
   })
-
-  it('renders scanner stats', () => {
-    render(<ScannerPage />)
-    expect(screen.getByText(/Market Status/i)).toBeInTheDocument()
-    expect(screen.getByText(/Symbols Tracked/i)).toBeInTheDocument()
-    expect(screen.getByText(/As of/i)).toBeInTheDocument()
+  it('requests selected top N from the backend, not a client-side rescore', async () => {
+    mount()
+    await screen.findByText('#7')
+    fireEvent.change(screen.getByLabelText('Results'), { target: { value: '50' } })
+    await waitFor(() => expect(api.getQuantScannerTop).toHaveBeenCalledWith(50))
+    expect(screen.getByLabelText('Results')).toHaveValue('50')
+    expect(await screen.findByText('#7')).toBeInTheDocument()
   })
-
-  it('renders scanner table with correct headers', () => {
-    render(<ScannerPage />)
-    const headers = ['Rank', 'Symbol', 'Score', 'Momentum', 'Trend', 'Liquidity', 'Volume', 'Vol Quality']
-    headers.forEach(header => {
-      expect(screen.getByRole('columnheader', { name: header })).toBeInTheDocument()
-    })
+  it('links candidate symbol to its stock research page', async () => {
+    mount()
+    expect(await screen.findByRole('link', { name: 'AAPL' })).toHaveAttribute('href', '/stocks/AAPL')
   })
-
-  it('renders candidate rows when data loads', () => {
-    render(<ScannerPage />)
-    expect(screen.getByText(/AAPL/i)).toBeInTheDocument()
-    expect(screen.getByText(/85/i)).toBeInTheDocument()
-    expect(screen.getByText(/#1/i)).toBeInTheDocument()
+  it('filters only returned symbols while retaining backend rank and scores', async () => {
+    vi.mocked(api.getQuantScannerTop).mockResolvedValue([candidate, { ...candidate, symbol: 'MSFT', rank: 12, quant_score: 50 }])
+    mount()
+    await screen.findByText('#12')
+    fireEvent.change(screen.getByLabelText('Filter returned symbols'), { target: { value: ' aapl ' } })
+    expect(screen.queryByRole('link', { name: 'MSFT' })).not.toBeInTheDocument()
+    expect(within(screen.getByRole('row', { name: /#7 AAPL/ })).getByText('85.0')).toBeInTheDocument()
+    expect(api.getQuantScannerTop).toHaveBeenCalledTimes(1)
   })
-
-  it('updates top N when selector changes', () => {
-    render(<ScannerPage />)
-    const select = screen.getByLabelText(/Number of results/i)
-    fireEvent.change(select, { target: { value: '50' } })
-    expect(select).toHaveValue('50')
+  it('distinguishes provider failure from successfully empty candidates', async () => {
+    vi.mocked(api.getQuantScannerTop).mockRejectedValue(new Error('offline'))
+    mount()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load scanner candidates from the connected provider')
+    expect(screen.queryByText(/No scanner candidates/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
-
-  it('links symbol to stock page', () => {
-    render(<ScannerPage />)
-    const link = screen.getByRole('link', { name: /AAPL/i })
-    expect(link).toHaveAttribute('href', '/stocks/AAPL')
+  it('does not claim operational scanning for unavailable/empty data', async () => {
+    vi.mocked(api.getQuantScannerTop).mockResolvedValue([])
+    vi.mocked(api.getScannerStatus).mockResolvedValue({ status: 'unavailable', reason: 'Provider not configured', source: 'Alpaca/IEX', mode: 'real', calculated_at: null, universe_size: 0 })
+    mount()
+    expect(await screen.findByText(/Provider not configured/)).toBeInTheDocument()
+    expect(await screen.findByText('No scanner candidates from the connected provider available.')).toBeInTheDocument()
   })
 })

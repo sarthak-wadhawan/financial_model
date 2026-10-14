@@ -4,20 +4,12 @@ import { format } from 'date-fns'
 import { api } from '../services/api'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Badge, Modal, ConfirmDialog } from '../components/ui'
-import type { AlertCreate, AlertUpdate } from '../services/api'
+import type { Alert, AlertCreate, AlertUpdate, AlertTestResponse } from '../services/api'
 
 const ALERT_TYPES = [
   { value: 'price', label: 'Price' },
   { value: 'price_change_pct', label: 'Price Change %' },
   { value: 'volume', label: 'Volume' },
-  { value: 'earnings', label: 'Earnings' },
-  { value: 'earnings_surprise', label: 'Earnings Surprise' },
-  { value: 'guidance_change', label: 'Guidance Change' },
-  { value: 'filing', label: 'SEC Filing' },
-  { value: 'insider', label: 'Insider Transaction' },
-  { value: 'leadership', label: 'Leadership Change' },
-  { value: 'news', label: 'News' },
-  { value: 'macro_event', label: 'Macro Event' },
   { value: 'quant_score', label: 'Quant Score' },
 ]
 
@@ -38,8 +30,6 @@ const SEVERITIES = [
 
 const CHANNELS = [
   { value: 'in_app' as const, label: 'In-App' },
-  { value: 'email' as const, label: 'Email' },
-  { value: 'webhook' as const, label: 'Webhook' },
 ]
 
 export function AlertsPage() {
@@ -47,6 +37,8 @@ export function AlertsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'all' | 'active' | 'triggered'>('all')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<AlertTestResponse | null>(null)
 
   const [newAlert, setNewAlert] = useState<AlertCreate>({
     name: '',
@@ -60,23 +52,24 @@ export function AlertsPage() {
     cooldown_minutes: 60,
   })
 
-  const { data: alerts, isLoading: alertsLoading } = useQuery({
+  const { data: alerts, isLoading: alertsLoading, error: alertsError } = useQuery({
     queryKey: ['alerts'],
     queryFn: () => api.getAlerts(),
     staleTime: 1000 * 60 * 5,
   })
 
-  const { data: recentTriggers } = useQuery({
+  const { data: recentTriggers, isLoading: triggersLoading, error: triggersError } = useQuery({
     queryKey: ['alertTriggers', 'recent'],
     queryFn: () => api.getRecentAlertTriggers(24, 50),
     staleTime: 1000 * 60 * 5,
   })
 
   const createMutation = useMutation({
-    mutationFn: (alert: AlertCreate) => api.createAlert(alert),
+    mutationFn: (alert: AlertCreate) => editingId ? api.updateAlert(editingId, alert) : api.createAlert(alert),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] })
       setShowCreateModal(false)
+      setEditingId(null)
       setNewAlert({
         name: '',
         alert_type: 'price',
@@ -108,14 +101,25 @@ export function AlertsPage() {
 
   const testMutation = useMutation({
     mutationFn: (request: { alert_id: string }) => api.testAlert(request),
-    onSuccess: (result) => {
-      alert(result.message || (result.would_trigger ? 'Alert would trigger!' : 'Alert would not trigger'))
-    },
+    onSuccess: setTestResult,
   })
+  const ackMutation = useMutation({ mutationFn: (id: string) => api.acknowledgeAlertTrigger(id), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['alertTriggers'] }) })
+  const openCreate = () => {
+    setEditingId(null)
+    setNewAlert({ name: '', alert_type: 'price', symbols: [], condition: 'above', threshold: null, severity: 'warning', channels: ['in_app'], is_active: true, cooldown_minutes: 60 })
+    createMutation.reset()
+    setShowCreateModal(true)
+  }
+  const edit = (alert: Alert) => {
+    setEditingId(alert.id)
+    setNewAlert({ name: alert.name, description: alert.description || '', alert_type: alert.alert_type, symbols: alert.symbols, condition: alert.condition, threshold: alert.threshold, severity: alert.severity, channels: ['in_app'], is_active: alert.is_active, cooldown_minutes: alert.cooldown_minutes })
+    createMutation.reset()
+    setShowCreateModal(true)
+  }
 
   const filteredAlerts = alerts?.filter(a => {
     if (activeTab === 'active') return a.is_active
-    if (activeTab === 'triggered') return !a.is_active
+    if (activeTab === 'triggered') return a.trigger_count > 0
     return true
   }) || []
 
@@ -134,12 +138,15 @@ export function AlertsPage() {
       <div className="page-header">
         <div className="page-header-content">
           <h1>Alerts</h1>
-          <p className="page-subtitle">Configure price, volume, earnings, and event alerts</p>
+          <p className="page-subtitle">Save price, volume and quant conditions. Dry-run does not send notifications.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+        <button className="btn btn-primary" onClick={openCreate}>
           Create Alert
         </button>
       </div>
+      <p className="form-hint">Rules and recorded trigger history are stored locally. Automatic scheduling, email and webhook delivery are not operational. Crossing/change conditions require prior observations.</p>
+      {(alertsError || createMutation.isError || updateMutation.isError || deleteMutation.isError || testMutation.isError || ackMutation.isError) && <p className="error-message" role="alert">Unable to load or save alert data. Please retry; no success is assumed.</p>}
+      {testResult && <section className="info-section" role="status"><h2>Dry-run result</h2><p>{testResult.message}</p><p>{testResult.would_trigger === true ? 'Condition matched.' : testResult.would_trigger === false ? 'Condition did not match.' : 'Cannot determine whether the condition matches.'}</p><details><summary>Observations checked ({testResult.symbols_checked.length})</summary><pre>{JSON.stringify(testResult.current_values, null, 2)}</pre></details></section>}
 
       <div className="alerts-tabs">
         <button
@@ -162,12 +169,12 @@ export function AlertsPage() {
         </button>
       </div>
 
-      {filteredAlerts.length === 0 ? (
+      {alertsError ? null : filteredAlerts.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">🔔</div>
           <h3>No alerts found</h3>
-          <p>Create your first alert to get notified about market events</p>
-          <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+           <p>No saved rules match this view.</p>
+           <button className="btn btn-primary" onClick={openCreate}>
             Create Alert
           </button>
         </div>
@@ -191,18 +198,21 @@ export function AlertsPage() {
                     )}
                   </div>
                 </div>
-                <div className="alert-actions">
+                 <div className="alert-actions">
+                   <button className="btn btn-sm btn-secondary" disabled={updateMutation.isPending} onClick={() => edit(alert)}>Edit</button>
                   <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => updateMutation.mutate({ id: alert.id, update: { is_active: !alert.is_active } })}
+                     className="btn btn-sm btn-secondary"
+                     disabled={updateMutation.isPending}
+                     onClick={() => updateMutation.mutate({ id: alert.id, update: { is_active: !alert.is_active } })}
                   >
                     {alert.is_active ? 'Deactivate' : 'Activate'}
                   </button>
                   <button
                     className="btn btn-sm btn-secondary"
-                    onClick={() => testMutation.mutate({ alert_id: alert.id })}
+                    disabled={testMutation.isPending}
+                    onClick={() => { setTestResult(null); testMutation.mutate({ alert_id: alert.id }) }}
                   >
-                    Test
+                     Dry-run
                   </button>
                   <button
                     className="btn btn-sm btn-ghost"
@@ -215,7 +225,7 @@ export function AlertsPage() {
               <div className="alert-details">
                 <div className="detail-row">
                   <span className="detail-label">Symbols:</span>
-                  <span>{alert.symbols.join(', ') || 'All symbols'}</span>
+                   <span>{alert.symbols.join(', ') || 'All supplied observations (not the entire market)'}</span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Severity:</span>
@@ -223,7 +233,7 @@ export function AlertsPage() {
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Channels:</span>
-                  <span>{alert.channels.join(', ')}</span>
+                   <span>{alert.channels.join(', ')} · external delivery unavailable</span>
                 </div>
                 <div className="detail-row">
                   <span className="detail-label">Cooldown:</span>
@@ -248,7 +258,7 @@ export function AlertsPage() {
       {activeTab === 'triggered' && (
         <div className="trigger-history-section">
           <h3>Recent Triggers</h3>
-          {recentTriggers?.length === 0 ? (
+          {triggersLoading ? <LoadingSpinner /> : triggersError ? <p className="error-message" role="alert">Trigger history unavailable. Please retry.</p> : recentTriggers?.length === 0 ? (
             <p className="muted">No recent triggers</p>
           ) : (
             <div className="trigger-history-list">
@@ -260,21 +270,20 @@ export function AlertsPage() {
                   </div>
                   <p className="trigger-message">{trigger.message}</p>
                   <div className="trigger-meta">
-                    <span>Value: {trigger.value?.toFixed(2)}</span>
-                    <span>Threshold: {trigger.threshold?.toFixed(2)}</span>
+                    <span>Value: {trigger.value?.toFixed(2) ?? 'Unavailable'}</span>
+                    <span>Threshold: {trigger.threshold?.toFixed(2) ?? 'Not applicable'}</span>
                     <span>{format(new Date(trigger.triggered_at), 'MMM d, yyyy HH:mm')}</span>
                   </div>
                   {!trigger.acknowledged && (
                     <button
                       className="btn btn-sm btn-secondary"
-                      onClick={() => {
-                        api.acknowledgeAlertTrigger(trigger.id)
-                        queryClient.invalidateQueries({ queryKey: ['alertTriggers'] })
-                      }}
+                      disabled={ackMutation.isPending}
+                      onClick={() => ackMutation.mutate(trigger.id)}
                     >
                       Acknowledge
                     </button>
                   )}
+                  {trigger.acknowledged && <span className="muted">Acknowledged</span>}
                 </div>
               ))}
             </div>
@@ -285,7 +294,7 @@ export function AlertsPage() {
       <Modal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        title="Create Alert"
+        title={editingId ? 'Edit Alert' : 'Create Alert'}
         size="lg"
       >
         <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(newAlert) }}>
@@ -322,6 +331,7 @@ export function AlertsPage() {
                 <label htmlFor="alert-type">Alert Type</label>
                 <select
                   id="alert-type"
+                  disabled={!!editingId}
                   value={newAlert.alert_type}
                   onChange={(e) => setNewAlert({ ...newAlert, alert_type: e.target.value })}
                 >
@@ -371,14 +381,15 @@ export function AlertsPage() {
           </div>
 
           <div className="form-section">
-            <h3>Symbols</h3>
+            <label htmlFor="alert-symbols">Symbols</label>
             <input
+              id="alert-symbols"
               type="text"
               placeholder="AAPL, MSFT, GOOGL (comma-separated, leave empty for all)"
               value={newAlert.symbols.join(', ')}
               onChange={(e) => setNewAlert({ ...newAlert, symbols: e.target.value ? e.target.value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [] })}
             />
-            <p className="form-hint">Leave empty to monitor all symbols</p>
+            <p className="form-hint">Empty means all observations supplied to evaluation; it does not fetch the entire market.</p>
           </div>
 
           <div className="form-section">
@@ -405,7 +416,7 @@ export function AlertsPage() {
             </div>
             <p className="form-hint muted">
               <strong>Note:</strong> Email and Webhook channels require backend delivery infrastructure.
-              Currently only In-App notifications are delivered.
+               Only recorded In-App history is available; no automatic notification scheduler is running.
             </p>
           </div>
 
@@ -425,12 +436,13 @@ export function AlertsPage() {
             </div>
           </div>
 
+          {createMutation.isError && <p role="alert" className="error-message">Could not save this rule. Check the configuration and retry.</p>}
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Creating...' : 'Create Alert'}
+              {createMutation.isPending ? 'Saving...' : editingId ? 'Save Alert' : 'Create Alert'}
             </button>
           </div>
         </form>

@@ -16,8 +16,10 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -26,6 +28,37 @@ from trading_copilot.providers.base import BaseProvider
 
 
 logger = logging.getLogger(__name__)
+
+
+class _FedCalendarHTML(HTMLParser):
+    """Minimal tree reader for the Fed's year panels."""
+
+    def __init__(self):
+        super().__init__()
+        self.root = {"tag": "root", "attrs": {}, "children": [], "text": ""}
+        self.stack = [self.root]
+
+    def handle_starttag(self, tag, attrs):
+        node = {"tag": tag, "attrs": dict(attrs), "children": [], "text": ""}
+        self.stack[-1]["children"].append(node)
+        if tag not in {"br", "hr", "img", "input", "meta", "link", "wbr"}:
+            self.stack.append(node)
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.stack) - 1, 0, -1):
+            if self.stack[index]["tag"] == tag:
+                del self.stack[index:]
+                break
+
+    def handle_data(self, data):
+        for node in self.stack:
+            node["text"] += data
+
+    @staticmethod
+    def walk(node):
+        yield node
+        for child in node["children"]:
+            yield from _FedCalendarHTML.walk(child)
 
 
 @dataclass
@@ -75,7 +108,7 @@ class MacroCalendarProvider(BaseProvider):
             source_url="https://www.federalreserve.gov/monetarypolicy/fomc_historical.htm",
             frequency="8_per_year",
             description="FOMC meeting minutes released 3 weeks after meeting",
-            provider_status="implemented",
+            provider_status="provider_pending",
         ),
         # Bureau of Labor Statistics - IMPLEMENTED
         "cpi": MacroEventConfig(
@@ -165,7 +198,7 @@ class MacroCalendarProvider(BaseProvider):
             frequency="monthly",
             description="Fed's preferred inflation measure",
             metadata={"series_name": "PCEPI"},
-            provider_status="implemented",
+            provider_status="provider_pending",
         ),
         "core_pce": MacroEventConfig(
             event_type=EventType.MACRO,
@@ -176,7 +209,7 @@ class MacroCalendarProvider(BaseProvider):
             frequency="monthly",
             description="PCE excluding food and energy",
             metadata={"series_name": "PCEPILFE"},
-            provider_status="implemented",
+            provider_status="provider_pending",
         ),
         "gdp": MacroEventConfig(
             event_type=EventType.MACRO,
@@ -187,7 +220,7 @@ class MacroCalendarProvider(BaseProvider):
             frequency="quarterly",
             description="Quarterly economic growth",
             metadata={"series_name": "GDP"},
-            provider_status="implemented",
+            provider_status="provider_pending",
         ),
         # Census Bureau - IMPLEMENTED
         "retail_sales": MacroEventConfig(
@@ -199,7 +232,7 @@ class MacroCalendarProvider(BaseProvider):
             frequency="monthly",
             description="Consumer spending measure",
             metadata={"series_id": "RSXFS"},
-            provider_status="implemented",
+            provider_status="provider_pending",
         ),
         "housing_starts": MacroEventConfig(
             event_type=EventType.MACRO,
@@ -210,7 +243,7 @@ class MacroCalendarProvider(BaseProvider):
             frequency="monthly",
             description="New residential construction",
             metadata={"series_id": "HOUST"},
-            provider_status="implemented",
+            provider_status="provider_pending",
         ),
         "building_permits": MacroEventConfig(
             event_type=EventType.MACRO,
@@ -221,7 +254,7 @@ class MacroCalendarProvider(BaseProvider):
             frequency="monthly",
             description="Future construction activity",
             metadata={"series_id": "PERMIT"},
-            provider_status="implemented",
+            provider_status="provider_pending",
         ),
         # PROVIDER_PENDING - No reliable free API
         "industrial_production": MacroEventConfig(
@@ -290,6 +323,8 @@ class MacroCalendarProvider(BaseProvider):
         bls_api_key: str | None = None,
         bea_api_key: str | None = None,
         census_api_key: str | None = None,
+        mode: str = "live",
+        fixture_dir: str | Path | None = None,
     ):
         super().__init__()
         self.event_store = event_store
@@ -300,49 +335,29 @@ class MacroCalendarProvider(BaseProvider):
         self.bls_api_key = bls_api_key
         self.bea_api_key = bea_api_key
         self.census_api_key = census_api_key
+        if mode not in {"live", "demo"}:
+            raise ValueError("mode must be live or demo")
+        self.mode = mode
+        self.fixture_dir = Path(fixture_dir).resolve() if fixture_dir else Path(__file__).resolve().parents[3] / "tests/fixtures"
+        self.last_fetch_status: dict[str, Any] = {}
 
     # ==================== FEDERAL RESERVE ====================
 
     def fetch_fomc_schedule(self, year: int | None = None) -> list[dict[str, Any]]:
-        """Fetch FOMC meeting schedule from Federal Reserve website.
-
-        Parses the official Fed FOMC calendar page for the given year.
-        Merges with fixture to ensure upcoming meetings are included
-        (Fed website only shows past meetings for current year).
-        """
+        """Fetch official schedules; fixtures are exclusive to explicit demo mode."""
         if year is None:
             year = datetime.now().year
 
-        # For current year, prefer fixture (authoritative full schedule)
-        # Fed website only shows past meetings and minutes dates
-        if year == datetime.now().year:
-            logger.info(f"Using fixture for current year FOMC {year}")
+        if self.mode == "demo":
+            self.last_fetch_status["fomc"] = {"status": "demo", "year": year}
             return self._load_fomc_fixture(year)
-
-        # For historical years, try Fed website then fallback to fixture
-        # Load fixture (authoritative full schedule)
-        fixture_events = self._load_fomc_fixture(year)
-
-        # Try to fetch from official source to get verified past meetings
         try:
-            fed_events = self._fetch_fomc_from_fed(year)
-            if fed_events:
-                logger.info(f"Fetched {len(fed_events)} FOMC meetings from Federal Reserve for {year}")
-                # Merge: use Fed data for past meetings, fixture for upcoming
-                # Match on meeting_start date to avoid duplicate key issues
-                fed_meeting_starts = {e["metadata"].get("meeting_start") for e in fed_events if e.get("metadata", {}).get("meeting_start")}
-                upcoming_fixture = [e for e in fixture_events if e["metadata"].get("meeting_start") not in fed_meeting_starts]
-                merged = fed_events + upcoming_fixture
-                # Sort by scheduled date
-                merged.sort(key=lambda x: x["scheduled_at"])
-                logger.info(f"Merged schedule: {len(merged)} total ({len(fed_events)} Fed + {len(upcoming_fixture)} fixture)")
-                return merged
-        except Exception as e:
-            logger.warning(f"Failed to fetch FOMC schedule from Fed for {year}: {e}")
-
-        # Fallback to fixture
-        logger.info(f"Using fixture for FOMC {year}")
-        return fixture_events
+            events = self._fetch_fomc_from_fed(year)
+        except Exception as exc:
+            self.last_fetch_status["fomc"] = {"status": "error", "year": year, "error_type": type(exc).__name__}
+            raise
+        self.last_fetch_status["fomc"] = {"status": "ok", "year": year, "count": len(events)}
+        return events
 
     def _fetch_fomc_from_fed(self, year: int) -> list[dict[str, Any]]:
         """Parse FOMC calendar from Federal Reserve website."""
@@ -350,10 +365,8 @@ class MacroCalendarProvider(BaseProvider):
         # https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm (current year)
         # https://www.federalreserve.gov/monetarypolicy/fomccalendars_2025.htm (historical)
 
-        if year == datetime.now().year:
-            url = self.FED_FOMC_CALENDAR_URL
-        else:
-            url = f"https://www.federalreserve.gov/monetarypolicy/fomccalendars_{year}.htm"
+        # The main calendar contains multiple year panels, including upcoming years.
+        url = self.FED_FOMC_CALENDAR_URL
 
         response = self.client.get(url)
         response.raise_for_status()
@@ -366,68 +379,92 @@ class MacroCalendarProvider(BaseProvider):
         if not events:
             raise ValueError("No FOMC meetings parsed from HTML")
 
+        retrieved_at = datetime.now(timezone.utc).isoformat()
+        for event in events:
+            event["source_url"] = str(response.url)
+            event["metadata"]["retrieved_at"] = retrieved_at
+
         return events
 
     def _parse_fomc_html(self, html: str, year: int) -> list[dict[str, Any]]:
-        """Parse FOMC meeting dates from Fed HTML calendar."""
-        events = []
+        """Parse year-scoped Fed panels, never arbitrary dates in page prose.
 
-        # Pattern to match meeting date rows in the Fed calendar table
-        # The Fed page has rows like: <td class="date">January 28-29, 2025</td>
-        # We'll look for month names followed by day ranges
-        month_pattern = r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:-(\d{1,2}))?,?\s+(\d{4})'
-
-        for match in re.finditer(month_pattern, html):
-            month_name, day1, day2, year_str = match.groups()
-            if int(year_str) != year:
+        A meeting date does not prove an exact statement time. The customary
+        14:00 Eastern time is retained only as an explicitly derived expectation.
+        """
+        parser = _FedCalendarHTML()
+        parser.feed(html)
+        nodes = list(parser.walk(parser.root))
+        rows = []
+        months = r"January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
+        for panel in nodes:
+            if "panel" not in panel["attrs"].get("class", "").split():
                 continue
+            descendants = list(parser.walk(panel))
+            if not any(n["tag"] in {"h2", "h3", "h4"} and re.search(rf"\b{year}\s+FOMC\s+Meetings\b", n["text"]) for n in descendants):
+                continue
+            for row in descendants:
+                classes = row["attrs"].get("class", "").split()
+                if "fomc-meeting" not in classes:
+                    continue
+                cells = list(parser.walk(row))
+                month = next((n["text"].strip() for n in cells if "fomc-meeting__month" in n["attrs"].get("class", "").split()), None)
+                days = next((n["text"].strip() for n in cells if "fomc-meeting__date" in n["attrs"].get("class", "").split()), None)
+                if month and days:
+                    rows.append((month, days, row["text"].strip()))
+        # Older/table-based calendars carry the year in the date cell itself.
+        for node in nodes:
+            if node["tag"] == "td" and "date" in node["attrs"].get("class", "").split():
+                match = re.fullmatch(rf"({months})\s+(\d{{1,2}}(?:[-–]\d{{1,2}})?),?\s+{year}", node["text"].strip())
+                if match:
+                    rows.append((match[1], match[2], node["text"].strip()))
+        events = {}
+        for month, days, evidence in rows:
+            if re.fullmatch(r"\d{1,2}\s+\(notation vote\)", days):
+                # A notation vote is not a scheduled FOMC meeting.
+                continue
+            month_match = re.fullmatch(rf"({months})(?:\s*/\s*({months}))?", month)
+            day_match = re.fullmatch(r"(\d{1,2})(?:\s*[-–]\s*(\d{1,2}))?\s*\*?", days)
+            if not month_match or not day_match:
+                raise ValueError("Unsupported Fed meeting date format")
+            start = date(year, self._month_name_to_num(month_match[1]), int(day_match[1]))
+            end = date(year, self._month_name_to_num(month_match[2] or month_match[1]), int(day_match[2] or day_match[1]))
+            if end < start:
+                raise ValueError("Invalid Fed meeting date range")
+            event = self._fomc_date_event(start, end)
+            event["metadata"]["evidence"] = evidence
+            events[event["event_key"]] = event
+        return sorted(events.values(), key=lambda e: e["metadata"]["meeting_start"])
 
-            month_num = self._month_name_to_num(month_name)
-            start_day = int(day1)
-            end_day = int(day2) if day2 else start_day
-
-            # Create start and end dates
-            start_date = date(year, month_num, start_day)
-            end_date = date(year, month_num, end_day)
-
-            # Statement is typically released at 2 PM ET on the second day
-            # 2 PM ET = 18:00 UTC (EST) or 19:00 UTC (EDT)
-            # We'll use 18:00 UTC as a reasonable default
-            scheduled_at = datetime.combine(end_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-            scheduled_at = scheduled_at.replace(hour=18, minute=0)
-
-            # Minutes released 3 weeks later (typically Wednesday)
-            minutes_date = end_date
-            # Add ~21 days to get to the Wednesday 3 weeks later
-            from datetime import timedelta
-            minutes_date = end_date + timedelta(days=21)
-            # Adjust to Wednesday
-            while minutes_date.weekday() != 2:  # 2 = Wednesday
-                minutes_date += timedelta(days=1)
-
-            events.append({
-                "name": "FOMC Meeting",
-                "description": "Federal Open Market Committee meeting - monetary policy decision",
-                "scheduled_at": scheduled_at.isoformat().replace("+00:00", "Z"),
-                "released_at": None,
-                "importance": EventImportance.CRITICAL,
-                "status": EventStatus.SCHEDULED,
-                "source": "federal_reserve",
-                "source_url": self.FED_FOMC_CALENDAR_URL,
-                "event_key": f"fomc_meeting_{start_date.isoformat()}",
-                "metadata": {
-                    "event_subtype": "fomc_meeting",
-                    "meeting_start": start_date.isoformat(),
-                    "meeting_end": end_date.isoformat(),
-                    "minutes_date": minutes_date.isoformat(),
-                },
-            })
-
-        return events
+    def _fomc_date_event(self, start: date, end: date) -> dict[str, Any]:
+        expected = datetime(end.year, end.month, end.day, 14, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+        return {
+            "name": "FOMC Meeting",
+            "description": "Federal Open Market Committee meeting - monetary policy decision",
+            "scheduled_at": None,
+            "released_at": None,
+            "importance": EventImportance.CRITICAL,
+            "status": EventStatus.SCHEDULED,
+            "source": "federal_reserve",
+            "source_url": self.FED_FOMC_CALENDAR_URL,
+            "event_key": f"fomc_meeting_{start.isoformat()}",
+            "metadata": {
+                "event_subtype": "fomc_meeting",
+                "event_date": end.isoformat(),
+                "meeting_start": start.isoformat(),
+                "meeting_end": end.isoformat(),
+                "minutes_date": None,
+                "scheduled_time_precision": "date",
+                "event_timezone": "America/New_York",
+                "expected_statement_at": expected.isoformat(),
+                "expected_statement_time_source": "derived_customary_14_ET_not_verified",
+                "verification_state": "official_date_only",
+            },
+        }
 
     def _load_fomc_fixture(self, year: int) -> list[dict[str, Any]]:
         """Load FOMC schedule from fixture file."""
-        fixture_path = Path(f"tests/fixtures/fomc_{year}.json")
+        fixture_path = self.fixture_dir / f"fomc_{year}.json"
         if fixture_path.exists():
             with open(fixture_path) as f:
                 data = json.load(f)
@@ -435,24 +472,12 @@ class MacroCalendarProvider(BaseProvider):
             for meeting in data:
                 start = meeting["meeting_date"]
                 end = meeting["meeting_end"]
-                scheduled_at = datetime.fromisoformat(f"{end}T18:00:00+00:00")
-                events.append({
-                    "name": "FOMC Meeting",
-                    "description": "Federal Open Market Committee meeting - monetary policy decision",
-                    "scheduled_at": scheduled_at.isoformat().replace("+00:00", "Z"),
-                    "released_at": None,
-                    "importance": EventImportance.CRITICAL,
-                    "status": EventStatus.SCHEDULED,
-                    "source": "federal_reserve",
-                    "source_url": self.FED_FOMC_CALENDAR_URL,
-                    "event_key": f"fomc_meeting_{start}",
-                    "metadata": {
-                        "event_subtype": "fomc_meeting",
-                        "meeting_start": start,
-                        "meeting_end": end,
-                        "minutes_date": meeting.get("minutes_date"),
-                    },
-                })
+                event = self._fomc_date_event(date.fromisoformat(start), date.fromisoformat(end))
+                event["source"] = "fixture"
+                event["event_key"] = f"fixture_fomc_meeting_{start}"
+                event["source_url"] = fixture_path.as_uri()
+                event["metadata"].update({"minutes_date": meeting.get("minutes_date"), "verification_state": "demo_fixture", "data_mode": "demo"})
+                events.append(event)
             return events
 
         # If no fixture, return empty (will be handled gracefully)
@@ -464,7 +489,13 @@ class MacroCalendarProvider(BaseProvider):
             "May": 5, "June": 6, "July": 7, "August": 8,
             "September": 9, "October": 10, "November": 11, "December": 12,
         }
-        return months.get(name, 1)
+        if name in months:
+            return months[name]
+        abbreviations = {month[:3]: number for month, number in months.items()}
+        abbreviations["Sept"] = 9
+        if name not in abbreviations:
+            raise ValueError("Unknown month name")
+        return abbreviations[name]
 
     # ==================== BUREAU OF LABOR STATISTICS ====================
 
@@ -503,18 +534,30 @@ class MacroCalendarProvider(BaseProvider):
             raise ValueError(f"BLS API error: {data.get('message', 'Unknown error')}")
 
         results = []
+        retrieved_at = datetime.now(timezone.utc).isoformat()
         for series in data.get("Results", {}).get("series", []):
+            if series.get("seriesID") != series_id:
+                continue
             for item in series.get("data", []):
                 year = int(item["year"])
                 period = item["period"]  # e.g., "M01", "M02", etc.
                 if period.startswith("M"):
                     month = int(period[1:])
+                    if not 1 <= month <= 12:  # M13 is an annual average, not a month.
+                        continue
                     value = item["value"]
                     if value != ".":
                         results.append({
                             "date": date(year, month, 1),
+                            "observation_period": f"{year}-{month:02d}",
+                            "release_date": None,
+                            "released_at": None,
                             "value": value,
                             "series_id": series_id,
+                            "source": "bls",
+                            "source_url": self.BLS_API_URL,
+                            "retrieved_at": retrieved_at,
+                            "footnotes": item.get("footnotes", []),
                         })
 
         return results
@@ -531,8 +574,15 @@ class MacroCalendarProvider(BaseProvider):
 
         return {
             "actual": latest["value"],
-            "release_date": latest["date"],
+            "observation_date": latest["date"],
+            "observation_period": latest["observation_period"],
+            "release_date": None,
+            "released_at": None,
             "series_id": series_id,
+            "source": latest["source"],
+            "source_url": latest["source_url"],
+            "retrieved_at": latest["retrieved_at"],
+            "footnotes": latest["footnotes"],
         }
 
     # ==================== BUREAU OF ECONOMIC ANALYSIS ====================
@@ -542,53 +592,20 @@ class MacroCalendarProvider(BaseProvider):
         series_name: str,
         frequency: str = "M",  # M=monthly, Q=quarterly
     ) -> list[dict[str, Any]]:
-        """Fetch time series data from BEA API.
+        """Explicitly unavailable until official table/line contracts are supported.
 
-        Requires BEA API key (free registration).
+        These series names are not valid NIPA API selection parameters. Having a
+        free API key does not turn the previous placeholder into a real parser.
         """
-        if not self.bea_api_key:
-            logger.warning("BEA API key not configured, skipping BEA fetch")
-            return []
-
-        params = {
-            "UserID": self.bea_api_key,
-            "method": "GetData",
-            "datasetname": "NIPA" if series_name in ["GDP", "PCEPI", "PCEPILFE"] else "UnderlyingDetail",
-            "Frequency": frequency,
-            "TableName": "T10101" if series_name == "GDP" else "T20401",
-            "SeriesCode": series_name,
-            "Year": "ALL",
-            "ResultFormat": "json",
-        }
-
-        response = self.client.get(self.BEA_API_URL, params=params)
-        response.raise_for_status()
-
-        data = response.json()
-        # Parse BEA response format
-        results = []
-        # BEA response structure varies - simplified parsing
-        return results
+        self.last_fetch_status["bea"] = {"status": "unavailable", "reason": "unsupported_official_parser"}
+        raise NotImplementedError("BEA official table/line parsing is not implemented")
 
     # ==================== CENSUS BUREAU ====================
 
     def fetch_census_series(self, series_id: str) -> list[dict[str, Any]]:
-        """Fetch time series data from Census API."""
-        params = {
-            "get": "value,date",
-            "for": "us:1",
-            "series": series_id,
-        }
-        if self.census_api_key:
-            params["key"] = self.census_api_key
-
-        response = self.client.get(self.CENSUS_API_URL, params=params)
-        response.raise_for_status()
-
-        data = response.json()
-        # Parse Census response
-        results = []
-        return results
+        """Do not issue invalid marts queries or represent a stub as real empty."""
+        self.last_fetch_status["census"] = {"status": "unavailable", "reason": "unsupported_official_parser"}
+        raise NotImplementedError("Census dataset-specific official parsing is not implemented")
 
     # ==================== UNIFIED REFRESH ====================
 
@@ -605,7 +622,12 @@ class MacroCalendarProvider(BaseProvider):
 
         for year in years:
             # Fetch FOMC schedule
-            fomc_events = self.fetch_fomc_schedule(year)
+            try:
+                fomc_events = self.fetch_fomc_schedule(year)
+            except Exception as exc:
+                logger.warning("FOMC fetch failed (%s)", type(exc).__name__)
+                counts["ERROR"] += 1
+                fomc_events = []
             for event_data in fomc_events:
                 try:
                     event = self._create_market_event(event_data)
@@ -616,7 +638,11 @@ class MacroCalendarProvider(BaseProvider):
                     counts["ERROR"] += 1
 
             # Fetch economic calendar (placeholder for other providers)
-            econ_events = self.fetch_economic_calendar(year)
+            try:
+                econ_events = self.fetch_economic_calendar(year)
+            except NotImplementedError:
+                counts["ERROR"] += 1
+                econ_events = []
             for event_data in econ_events:
                 try:
                     event = self._create_market_event(event_data)
@@ -634,20 +660,8 @@ class MacroCalendarProvider(BaseProvider):
         This creates scheduled events for known release dates.
         Actual values are fetched separately via fetch_released_values().
         """
-        if year is None:
-            year = datetime.now().year
-
-        events = []
-
-        # Add scheduled events for implemented providers
-        # These are the known release dates for the year
-        # In production, these would come from official release calendars
-
-        # BLS monthly releases (typically first/second Friday for NFP, mid-month for CPI)
-        # For now, we create placeholder scheduled events
-        # A production implementation would parse official release calendars
-
-        return events
+        self.last_fetch_status["economic_calendar"] = {"status": "unavailable", "reason": "official_release_calendar_not_implemented"}
+        raise NotImplementedError("Official economic release calendar parsing is not implemented")
 
     def fetch_released_values(self, since: datetime | None = None) -> dict[str, int]:
         """Fetch latest released values for all implemented series.
@@ -658,7 +672,7 @@ class MacroCalendarProvider(BaseProvider):
         if since is None:
             since = datetime.now(timezone.utc) - __import__('datetime').timedelta(days=30)
 
-        counts = {"UPDATED": 0, "ERROR": 0}
+        counts = {"UPDATED": 0, "ERROR": 0, "UNMATCHED": 0}
 
         # Fetch BLS releases
         for key in ["cpi", "core_cpi", "ppi", "nfp", "unemployment_rate", "avg_hourly_earnings", "jolts"]:
@@ -672,16 +686,12 @@ class MacroCalendarProvider(BaseProvider):
 
             try:
                 release = self.fetch_latest_bls_release(series_id)
-                if release and release["release_date"]:
-                    release_dt = datetime.combine(release["release_date"], datetime.min.time()).replace(tzinfo=timezone.utc)
-                    if release_dt >= since:
-                        result = self.update_event_values(
-                            event_key=f"{key}_{release['release_date'].isoformat()}",
-                            actual=release["actual"],
-                            released_at=release_dt,
-                        )
-                        if result:
-                            counts["UPDATED"] += 1
+                if release:
+                    # Observation APIs contain neither release time nor a safe
+                    # schedule identity. Do not guess a release or overwrite an
+                    # unrelated event based on its reference month.
+                    counts["UNMATCHED"] += 1
+                    self.last_fetch_status[key] = {"status": "unmatched", "reason": "release_time_and_schedule_identity_unknown", "observation_period": release["observation_period"], "retrieved_at": release["retrieved_at"]}
             except Exception as e:
                 logger.error(f"Failed to fetch BLS release for {key}: {e}")
                 counts["ERROR"] += 1
@@ -720,11 +730,19 @@ class MacroCalendarProvider(BaseProvider):
         if start is None:
             start = datetime.now(timezone.utc)
 
-        events = self.event_store.upcoming_events(limit=1000, from_date=start)
-
-        if end:
-            end_date = end.date()
-            events = [e for e in events if e.scheduled_at and e.scheduled_at.date() <= end_date]
+        # Date-only schedules deliberately have no fabricated scheduled_at.
+        events = self.event_store.events_by_type(EventType.MACRO, limit=1000)
+        selected = []
+        for event in events:
+            if event.status != EventStatus.SCHEDULED:
+                continue
+            event_date = event.scheduled_at.date() if event.scheduled_at else None
+            if event_date is None and event.metadata.get("event_date"):
+                event_date = date.fromisoformat(event.metadata["event_date"])
+            if event_date is None or event_date < start.date() or end and event_date > end.date():
+                continue
+            selected.append(event)
+        events = sorted(selected, key=lambda e: e.metadata.get("event_date") or e.scheduled_at.date().isoformat())
 
         if importance:
             events = [e for e in events if e.importance == importance]
@@ -798,5 +816,5 @@ class MacroCalendarProvider(BaseProvider):
         self.client.close()
 
     def health_check(self) -> bool:
-        """Check if provider is available."""
-        return True
+        """True only after a successful official schedule retrieval, not a stub."""
+        return self.last_fetch_status.get("fomc", {}).get("status") == "ok"

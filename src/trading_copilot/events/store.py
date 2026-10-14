@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from trading_copilot.models.events import (
     EventImportance,
@@ -23,7 +23,8 @@ from trading_copilot.models.events import (
 class EventStore:
     """SQLite-backed event store with full CRUD and revision history."""
 
-    def __init__(self, db_path: str | Path = "data/events.db"):
+    def __init__(self, db_path: str | Path = "data/events.db", *, now: Optional[Callable[[], datetime]] = None):
+        self._now = now or (lambda: datetime.now(timezone.utc))
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -81,6 +82,10 @@ class EventStore:
                 CREATE INDEX IF NOT EXISTS idx_revisions_changed_at ON event_revisions(changed_at);
                 """
             )
+            # Additive migration: retain legacy rows/deltas without inventing snapshots.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(event_revisions)")}
+            if "old_snapshot" not in columns:
+                conn.execute("ALTER TABLE event_revisions ADD COLUMN old_snapshot TEXT")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -188,7 +193,7 @@ class EventStore:
             "last_seen_at": event.last_seen_at.isoformat().replace("+00:00", "Z"),
             "updated_at": event.updated_at.isoformat().replace("+00:00", "Z"),
             "content_hash": event.content_hash,
-            "metadata": json.dumps(event.metadata),
+            "metadata": json.dumps(event.model_dump(mode="json")["metadata"]),
         }
 
     def upsert_event(self, event: MarketEvent) -> UpsertResult:
@@ -207,9 +212,9 @@ class EventStore:
         identity_key = event.metadata.get("_identity_key", self._compute_identity_key(event))
         event.metadata["_identity_key"] = identity_key
 
-        # Compute content hash if not provided
-        if not event.content_hash:
-            event.content_hash = event.compute_content_hash()
+        # Models can be mutated after creation; never trust a cached hash.
+        event.content_hash = event.compute_content_hash()
+        now_dt = self._now()
 
         with self._conn() as conn:
             # Check if event with same identity_key exists
@@ -222,12 +227,12 @@ class EventStore:
                 existing_event = self._row_to_event(existing)
 
                 # Check if content changed
-                if existing_event.content_hash == event.content_hash:
+                if existing_event.compute_content_hash() == event.content_hash:
                     # No content change - just update last_seen_at
                     conn.execute(
                         "UPDATE events SET last_seen_at = ? WHERE identity_key = ?",
                         (
-                            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            now_dt.isoformat().replace("+00:00", "Z"),
                             identity_key,
                         ),
                     )
@@ -237,7 +242,7 @@ class EventStore:
                 changed_fields = self._detect_changes(existing_event, event)
 
                 # Update event with new content_hash but same event_id
-                now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                now = now_dt.isoformat().replace("+00:00", "Z")
                 row = self._event_to_row(event)
                 row["event_id"] = existing_event.event_id  # Preserve original event_id
                 row["last_seen_at"] = now
@@ -272,11 +277,14 @@ class EventStore:
                 )
 
                 # Record revision using original event_id
-                self._record_revision(conn, existing_event.event_id, changed_fields)
+                self._record_revision(conn, existing_event.event_id, changed_fields, existing_event, now_dt)
 
                 return UpsertResult.CHANGED
 
             # New event - insert
+            event.first_seen_at = max(event.first_seen_at, now_dt)
+            event.updated_at = now_dt
+            event.last_seen_at = now_dt
             row = self._event_to_row(event)
             conn.execute(
                 """
@@ -304,6 +312,10 @@ class EventStore:
         """Detect meaningful changes between two events."""
         changes = {}
         fields_to_check = [
+            "event_type",
+            "symbol",
+            "source",
+            "metadata",
             "title",
             "description",
             "scheduled_at",
@@ -333,31 +345,87 @@ class EventStore:
         return changes
 
     def _record_revision(
-        self, conn: sqlite3.Connection, event_id: str, changed_fields: dict[str, Any]
+        self, conn: sqlite3.Connection, event_id: str, changed_fields: dict[str, Any],
+        old_event: MarketEvent, changed_at: datetime,
     ) -> None:
         """Record a revision in the history table."""
         revision = EventRevision(
             event_id=event_id,
-            changed_at=datetime.now(timezone.utc),
+            changed_at=changed_at,
             changed_fields=changed_fields,
         )
         conn.execute(
             """
-            INSERT INTO event_revisions (revision_id, event_id, changed_at, changed_fields, changed_by)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO event_revisions (revision_id, event_id, changed_at, changed_fields, changed_by, old_snapshot)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 revision.revision_id,
                 revision.event_id,
                 revision.changed_at.isoformat().replace("+00:00", "Z"),
                 json.dumps(
-                    {k: v.isoformat() if isinstance(v, datetime) else v for k, v in changed_fields.items()}
+                    {k: v.isoformat() if isinstance(v, datetime) else v for k, v in changed_fields.items()},
+                    default=str,
                 ),
                 revision.changed_by,
+                old_event.model_dump_json(),
             ),
         )
 
     # Query methods
+
+    @staticmethod
+    def evidence_available_as_of(metadata: Any, as_of: datetime) -> bool:
+        """Conservatively reject payloads with future/invalid knowledge timestamps."""
+        knowledge_keys = {"retrieved_at", "first_seen_at", "consensus_as_of", "calculated_at", "calculation_timestamp",
+                          "published_at", "filing_accepted_at", "announcement_released_at"}
+        if isinstance(metadata, dict):
+            for key, value in metadata.items():
+                if key in knowledge_keys and value is not None:
+                    try:
+                        stamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                        if stamp.tzinfo is None or stamp > as_of:
+                            return False
+                    except (TypeError, ValueError):
+                        return False
+                elif not EventStore.evidence_available_as_of(value, as_of):
+                    return False
+        elif isinstance(metadata, list):
+            return all(EventStore.evidence_available_as_of(value, as_of) for value in metadata)
+        return True
+
+    def events_as_of(self, as_of: datetime) -> list[MarketEvent]:
+        """Reconstruct known state, failing closed across incomplete legacy revisions.
+
+        Filter symbol/type after reconstruction: those fields can themselves change.
+        Release/schedule filtering is a separate interpretation concern.
+        """
+        if as_of.tzinfo is None:
+            raise ValueError("as_of must be timezone-aware")
+        result = []
+        with self._conn() as conn:
+            for row in conn.execute("SELECT * FROM events"):
+                event = self._row_to_event(row)
+                if event.first_seen_at > as_of:
+                    continue
+                revisions = conn.execute(
+                    "SELECT * FROM event_revisions WHERE event_id = ? ORDER BY changed_at DESC, rowid DESC",
+                    (event.event_id,),
+                ).fetchall()
+                complete = True
+                for revision in revisions:
+                    changed_at = datetime.fromisoformat(revision["changed_at"].replace("Z", "+00:00"))
+                    if changed_at > as_of:
+                        if not revision["old_snapshot"]:
+                            complete = False
+                            break
+                        event = MarketEvent.model_validate_json(revision["old_snapshot"])
+                # Updated legacy rows without recoverable history are unknown.
+                if complete and event.updated_at <= as_of and self.evidence_available_as_of(event.metadata, as_of):
+                    # Latest polling bookkeeping is not historical evidence either.
+                    event.last_seen_at = min(event.last_seen_at, as_of)
+                    result.append(event)
+        return result
 
     def get_event(self, event_id: str) -> Optional[MarketEvent]:
         """Get a single event by ID."""
@@ -586,6 +654,7 @@ class EventStore:
                         ),
                         changed_fields=json.loads(row["changed_fields"]),
                         changed_by=row["changed_by"],
+                        old_snapshot=json.loads(row["old_snapshot"]) if row["old_snapshot"] else None,
                     )
                 )
             return revisions

@@ -75,7 +75,7 @@ export interface SourceDocument {
   text: string
   retrieval_time: string
   content_hash: string
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
 }
 
 export interface QuantCandidate {
@@ -128,7 +128,7 @@ export interface NewsEvent {
   author?: string | null
   provider_id?: string
   content_hash?: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
   dedup_key?: string | null
   related_documents?: string[]
   sec_filing_id?: string | null
@@ -178,7 +178,7 @@ export interface CompanyEvent {
   source?: string
   source_url?: string
   source_id?: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 export interface InsiderTransaction {
@@ -267,7 +267,7 @@ export interface CompanyEventResponse {
   status?: string
   source?: string
   source_url?: string | null
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 export interface Interpretation {
@@ -297,7 +297,7 @@ export interface CompanyImpact {
   magnitude: string
   horizon: string
   reasons: string[]
-  evidence_refs: any[]
+  evidence_refs: unknown[]
   confidence: number
 }
 
@@ -306,7 +306,7 @@ export interface StockImpact {
   magnitude: string
   horizon: string
   reasons: string[]
-  evidence_refs: any[]
+  evidence_refs: unknown[]
   confidence: number
 }
 
@@ -314,14 +314,14 @@ export interface Scenario {
   scenario_type: string
   description: string
   required_conditions: string[]
-  evidence_refs: any[]
+  evidence_refs: unknown[]
   probability_band?: string
 }
 
 export interface ViewChangeTrigger {
   trigger: string
   description: string
-  evidence_refs: any[]
+  evidence_refs: unknown[]
 }
 
 export interface EvidenceRef {
@@ -335,7 +335,7 @@ export interface EvidenceRef {
 export interface Answer {
   question: string
   answer: string
-  evidence_refs: any[]
+  evidence_refs: unknown[]
   confidence: number
   generated_at: string
 }
@@ -343,7 +343,7 @@ export interface Answer {
 export interface AnswerRequest {
   symbol: string
   question: string
-  context?: Record<string, any>
+  context?: Record<string, unknown>
 }
 
 export interface TermDefinition {
@@ -418,7 +418,7 @@ export interface NewsDocument {
   author: string | null
   provider_id: string
   content_hash: string
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
   dedup_key: string | null
   related_documents: string[]
   sec_filing_id: string | null

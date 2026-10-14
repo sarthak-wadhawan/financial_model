@@ -1,150 +1,25 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { format } from 'date-fns'
 import { api } from '../services/api'
-import { LoadingSpinner } from '../components/ui/LoadingSpinner'
+import { DataStatus, displayDate, displayNumber, Term } from '../components/ui/ResearchData'
 
 export function ScannerPage() {
   const [topN, setTopN] = useState(20)
-
-  const { data: candidates, isLoading } = useQuery({
-    queryKey: ['scannerTop', topN],
-    queryFn: () => api.getQuantScannerTop(topN),
-    staleTime: 1000 * 60 * 5,
-  })
-
-  const { data: marketOverview } = useQuery({
-    queryKey: ['marketOverview'],
-    queryFn: () => api.getMarketOverview(),
-    staleTime: 1000 * 60 * 5,
-  })
-
-  if (isLoading) {
-    return (
-      <div className="page scanner-page">
-        <div className="page-header">
-          <h1>Quant Scanner</h1>
-          <p className="page-subtitle">Top ranked stocks by deterministic quant signals</p>
-        </div>
-        <div className="scanner-loading">
-          <LoadingSpinner size="lg" />
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="page scanner-page">
-      <div className="page-header">
-        <div className="page-header-content">
-          <h1>Quant Scanner</h1>
-          <p className="page-subtitle">Top ranked stocks by deterministic quant signals</p>
-        </div>
-        <div className="page-header-actions">
-          <select
-            value={topN}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTopN(Number(e.target.value))}
-            className="select-input"
-            aria-label="Number of results"
-          >
-            <option value={10}>Top 10</option>
-            <option value={20}>Top 20</option>
-            <option value={50}>Top 50</option>
-            <option value={100}>Top 100</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="scanner-toolbar">
-        <div className="scanner-stats">
-          <div className="stat">
-            <span className="stat-label">Market Status</span>
-            <span className="stat-value">{marketOverview?.market_status || '—'}</span>
-          </div>
-          <div className="stat">
-            <span className="stat-label">Symbols Tracked</span>
-            <span className="stat-value">{marketOverview?.symbols_tracked || 0}</span>
-          </div>
-          <div className="stat">
-            <span className="stat-label">As of</span>
-            <span className="stat-value">{marketOverview?.snapshot_time ? format(new Date(marketOverview.snapshot_time), 'MMM d, yyyy HH:mm') : '—'}</span>
-          </div>
-        </div>
-      </div>
-
-      {candidates && candidates.length > 0 ? (
-        <div className="scanner-table-container">
-          <table className="scanner-table">
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Symbol</th>
-                <th>Quant Score</th>
-                <th>Momentum</th>
-                <th>Trend</th>
-                <th>Liquidity</th>
-                <th>Volume</th>
-                <th>Vol Quality</th>
-                <th>Price</th>
-                <th>As Of</th>
-              </tr>
-            </thead>
-            <tbody>
-              {candidates.map((candidate: any, index: number) => (
-                <tr key={candidate.symbol}>
-                  <td className="rank">#{index + 1}</td>
-                  <td>
-                    <Link to={`/stocks/${candidate.symbol}`} className="symbol-link">
-                      {candidate.symbol}
-                    </Link>
-                  </td>
-                  <td className="score-cell">
-                    <span className={`score ${candidate.quant_score >= 70 ? 'high' : candidate.quant_score >= 50 ? 'medium' : 'low'}`}>
-                      {candidate.quant_score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="score-cell">
-                    <span className={`score ${candidate.momentum_score >= 70 ? 'high' : candidate.momentum_score >= 50 ? 'medium' : 'low'}`}>
-                      {candidate.momentum_score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="score-cell">
-                    <span className={`score ${candidate.trend_score >= 70 ? 'high' : candidate.trend_score >= 50 ? 'medium' : 'low'}`}>
-                      {candidate.trend_score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="score-cell">
-                    <span className={`score ${candidate.liquidity_score >= 70 ? 'high' : candidate.liquidity_score >= 50 ? 'medium' : 'low'}`}>
-                      {candidate.liquidity_score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="score-cell">
-                    <span className={`score ${candidate.volume_score >= 70 ? 'high' : candidate.volume_score >= 50 ? 'medium' : 'low'}`}>
-                      {candidate.volume_score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="score-cell">
-                    <span className={`score ${candidate.volatility_quality_score >= 70 ? 'high' : candidate.volatility_quality_score >= 50 ? 'medium' : 'low'}`}>
-                      {candidate.volatility_quality_score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="price-cell">${candidate.price?.toFixed(2) || '—'}</td>
-                  <td className="date-cell">{candidate.as_of ? format(new Date(candidate.as_of), 'MMM d, yyyy') : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="empty-state">
-          <div className="empty-state-icon">🔍</div>
-          <h3>No candidates found</h3>
-          <p>Try adjusting your scanner parameters or check back later.</p>
-        </div>
-      )}
-    </div>
-  )
+  const [filter, setFilter] = useState('')
+  const scanner = useQuery({ queryKey: ['scannerTop', topN], queryFn: () => api.getQuantScannerTop(topN), staleTime: 300000 })
+  const market = useQuery({ queryKey: ['marketOverview'], queryFn: () => api.getMarketOverview(), staleTime: 300000 })
+  const status = useQuery({ queryKey: ['scannerStatus'], queryFn: () => api.getScannerStatus(), staleTime: 300000 })
+  const candidates = scanner.data?.filter(candidate => candidate.symbol.includes(filter.trim().toUpperCase()))
+  return <div className="page scanner-page">
+    <div className="page-header"><div className="page-header-content"><h1>Quant Scanner</h1><p className="page-subtitle">Deterministic rankings for research. Scores are not price forecasts or trade recommendations.</p></div></div>
+    <div className="scanner-toolbar"><div className="page-header-actions"><label htmlFor="scanner-count">Results</label><select id="scanner-count" className="select-input" value={topN} onChange={e => setTopN(Number(e.target.value))}>{[10,20,50,100].map(n => <option key={n} value={n}>Top {n}</option>)}</select><label htmlFor="scanner-filter">Filter returned symbols</label><input id="scanner-filter" className="search-input" value={filter} onChange={e => setFilter(e.target.value)} placeholder="e.g. AAPL" /><button className="btn btn-secondary" disabled={scanner.isFetching} onClick={() => scanner.refetch()}>{scanner.isFetching ? 'Refreshing…' : 'Refresh results'}</button></div></div>
+    <div className="scanner-stats"><div className="stat"><span className="stat-label">Market status</span><span className="stat-value">{market.data?.market_status ?? 'Unavailable'}</span></div><div className="stat"><span className="stat-label">Symbols tracked</span><span className="stat-value">{market.data?.symbols_tracked ?? 'Unavailable'}</span></div><div className="stat"><span className="stat-label">Calculation date</span><span className="stat-value">{displayDate(status.data?.calculated_at)}</span></div></div>
+    <DataStatus loading={status.isLoading} error={status.isError} label="scanner provenance" />
+    {status.data && <p className="data-status">Mode: {status.data.mode} · Status: {status.data.status} · Source: {status.data.source} · Market date: {displayDate(status.data.market_timestamp)}{status.data.reason ? ` · ${status.data.reason}` : ''}</p>}
+    <DataStatus error={market.isError} label="market status" />
+    <DataStatus loading={scanner.isLoading} error={scanner.isError} empty={scanner.isSuccess && !scanner.data?.length} label="scanner candidates from the connected provider" />
+    {scanner.data && !scanner.isError && <><p className="data-status">{candidates?.length} of {scanner.data.length} returned candidates. Filtering preserves backend ranks and scores.</p>{!candidates?.length && !!scanner.data.length ? <p className="empty-state">No returned symbols match this filter.</p> : !!candidates?.length && <div className="scanner-table-container" tabIndex={0} role="region" aria-label="Scanner results, scroll horizontally for all scores"><table className="scanner-table"><caption>Backend rankings and component scores</caption><thead><tr><th scope="col">Rank</th><th scope="col">Symbol</th><th scope="col">Quant Score</th><th scope="col"><Term term="momentum">Momentum</Term></th><th scope="col">Trend</th><th scope="col"><Term term="liquidity">Liquidity</Term></th><th scope="col">Volume</th><th scope="col">Vol Quality</th><th scope="col">Price</th></tr></thead><tbody>{candidates.map(candidate => <tr key={candidate.symbol}><td className="rank">#{candidate.rank}</td><td><Link className="symbol-link" to={`/stocks/${candidate.symbol}`}>{candidate.symbol}</Link></td>{[candidate.quant_score, candidate.momentum_score, candidate.trend_score, candidate.liquidity_score, candidate.volume_score, candidate.volatility_quality_score].map((score, i) => <td key={i} className="score-cell">{displayNumber(score)}</td>)}<td className="price-cell">{typeof candidate.price === 'number' ? `$${displayNumber(candidate.price, 2)}` : 'Unavailable'}</td></tr>)}</tbody></table></div>}</>}
+  </div>
 }
-
 export default ScannerPage

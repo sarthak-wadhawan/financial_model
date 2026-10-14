@@ -54,7 +54,7 @@ class SourcesConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False
     base_url_env: str = "LLM_BASE_URL"
     api_key_env: str = "LLM_API_KEY"
     model_env: str = "LLM_MODEL"

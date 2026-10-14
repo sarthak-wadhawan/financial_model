@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import pickle
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,10 @@ class FileCache:
             with open(meta_path) as f:
                 meta = json.load(f)
             cached_time = datetime.fromisoformat(meta["timestamp"])
-            if datetime.now() - cached_time > self.ttl:
+            # Ensure both datetimes are timezone-aware for comparison
+            if cached_time.tzinfo is None:
+                cached_time = cached_time.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - cached_time > self.ttl:
                 return None
         except Exception:
             return None
@@ -62,7 +65,7 @@ class FileCache:
             with open(path, "wb") as f:
                 pickle.dump(value, f)
             
-            meta = {"timestamp": datetime.now().isoformat()}
+            meta = {"timestamp": datetime.now(timezone.utc).isoformat()}
             with open(meta_path, "w") as f:
                 json.dump(meta, f)
         except Exception:
@@ -78,19 +81,26 @@ class FileCache:
 
 
 class MemoryCache:
-    """In-memory cache for testing."""
+    """In-memory cache for testing with TTL support."""
 
-    def __init__(self):
+    def __init__(self, ttl_days: int = 7):
         self._store: dict[str, tuple[Any, datetime]] = {}
+        self.ttl = timedelta(days=ttl_days)
 
     def get(self, key: str) -> Any | None:
         if key in self._store:
             value, timestamp = self._store[key]
+            # Ensure both datetimes are timezone-aware for comparison
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - timestamp > self.ttl:
+                del self._store[key]
+                return None
             return value
         return None
 
     def set(self, key: str, value: Any) -> None:
-        self._store[key] = (value, datetime.now())
+        self._store[key] = (value, datetime.now(timezone.utc))
 
     def clear(self) -> None:
         self._store.clear()

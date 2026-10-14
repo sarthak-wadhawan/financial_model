@@ -64,6 +64,7 @@ class WatchlistStore:
     def _conn(self):
         """Get database connection."""
         conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -72,11 +73,7 @@ class WatchlistStore:
 
     def _row_to_watchlist(self, row: sqlite3.Row, include_items: bool = False) -> Watchlist | WatchlistWithItems:
         """Convert database row to Watchlist model."""
-        symbols_raw = row["symbols"] if "symbols" in row.keys() else None
-        if symbols_raw:
-            symbols = symbols_raw.split(",")
-        else:
-            symbols = []
+        symbols = [item.symbol for item in self.get_items(row["id"])]
 
         watchlist = Watchlist(
             id=row["id"],
@@ -105,12 +102,9 @@ class WatchlistStore:
         now = datetime.now().isoformat()
 
         # If this is set as default, unset other defaults
-        if watchlist.is_default:
-            with self._conn() as conn:
-                conn.execute("UPDATE watchlists SET is_default = 0 WHERE is_default = 1")
-                conn.commit()
-
         with self._conn() as conn:
+            if watchlist.is_default:
+                conn.execute("UPDATE watchlists SET is_default = 0 WHERE is_default = 1")
             conn.execute("""
                 INSERT INTO watchlists (id, name, description, sort_order, is_default, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -186,17 +180,13 @@ class WatchlistStore:
     def update(self, watchlist_id: str, update: WatchlistUpdate) -> Optional[Watchlist]:
         """Update a watchlist."""
         # If setting as default, unset other defaults
-        if update.is_default is True:
-            with self._conn() as conn:
-                conn.execute("UPDATE watchlists SET is_default = 0 WHERE is_default = 1 AND id != ?", (watchlist_id,))
-
         fields = []
         values = []
 
         if update.name is not None:
             fields.append("name = ?")
             values.append(update.name)
-        if update.description is not None:
+        if "description" in update.model_fields_set:
             fields.append("description = ?")
             values.append(update.description)
         if update.sort_order is not None:
@@ -214,6 +204,10 @@ class WatchlistStore:
         values.append(watchlist_id)
 
         with self._conn() as conn:
+            if not conn.execute("SELECT 1 FROM watchlists WHERE id = ?", (watchlist_id,)).fetchone():
+                return None
+            if update.is_default is True:
+                conn.execute("UPDATE watchlists SET is_default = 0 WHERE is_default = 1 AND id != ?", (watchlist_id,))
             conn.execute(f"UPDATE watchlists SET {', '.join(fields)} WHERE id = ?", values)
             conn.commit()
 
@@ -254,6 +248,10 @@ class WatchlistStore:
 
         # Get next sort index
         with self._conn() as conn:
+            if not conn.execute("SELECT 1 FROM watchlists WHERE id = ?", (watchlist_id,)).fetchone():
+                raise KeyError("Watchlist not found")
+            if conn.execute("SELECT 1 FROM watchlist_items WHERE watchlist_id = ? AND symbol = ?", (watchlist_id, item.symbol)).fetchone():
+                raise ValueError("Symbol already in watchlist")
             max_index = conn.execute("""
                 SELECT COALESCE(MAX(sort_index), -1) + 1 FROM watchlist_items WHERE watchlist_id = ?
             """, (watchlist_id,)).fetchone()[0]
@@ -262,6 +260,7 @@ class WatchlistStore:
                 INSERT INTO watchlist_items (watchlist_id, symbol, notes, sort_index, added_at)
                 VALUES (?, ?, ?, ?, ?)
             """, (watchlist_id, item.symbol.upper(), item.notes, max_index, now))
+            conn.execute("UPDATE watchlists SET updated_at = ? WHERE id = ?", (now, watchlist_id))
             conn.commit()
 
         return WatchlistItem(
@@ -276,7 +275,7 @@ class WatchlistStore:
         fields = []
         values = []
 
-        if update.notes is not None:
+        if "notes" in update.model_fields_set:
             fields.append("notes = ?")
             values.append(update.notes)
         if update.sort_index is not None:
@@ -290,6 +289,7 @@ class WatchlistStore:
 
         with self._conn() as conn:
             conn.execute(f"UPDATE watchlist_items SET {', '.join(fields)} WHERE watchlist_id = ? AND symbol = ?", values)
+            conn.execute("UPDATE watchlists SET updated_at = ? WHERE id = ?", (datetime.now().isoformat(), watchlist_id))
             conn.commit()
 
         return self.get_item(watchlist_id, symbol)
@@ -319,16 +319,23 @@ class WatchlistStore:
             cursor = conn.execute("""
                 DELETE FROM watchlist_items WHERE watchlist_id = ? AND symbol = ?
             """, (watchlist_id, symbol.upper()))
+            conn.execute("UPDATE watchlists SET updated_at = ? WHERE id = ?", (datetime.now().isoformat(), watchlist_id))
             conn.commit()
             return cursor.rowcount > 0
 
     def reorder_items(self, watchlist_id: str, symbols: List[str]) -> None:
         """Reorder watchlist items."""
         with self._conn() as conn:
+            if not conn.execute("SELECT 1 FROM watchlists WHERE id = ?", (watchlist_id,)).fetchone():
+                raise KeyError("Watchlist not found")
+            existing = {row[0] for row in conn.execute("SELECT symbol FROM watchlist_items WHERE watchlist_id = ?", (watchlist_id,))}
+            if len(symbols) != len(set(symbols)) or set(symbols) != existing:
+                raise ValueError("Reorder must contain every watchlist symbol exactly once")
             for index, symbol in enumerate(symbols):
                 conn.execute("""
                     UPDATE watchlist_items SET sort_index = ? WHERE watchlist_id = ? AND symbol = ?
                 """, (index, watchlist_id, symbol.upper()))
+            conn.execute("UPDATE watchlists SET updated_at = ? WHERE id = ?", (datetime.now().isoformat(), watchlist_id))
             conn.commit()
 
     def get_watchlist_with_items(self, watchlist_id: str) -> Optional[WatchlistWithItems]:

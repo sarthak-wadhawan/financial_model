@@ -925,32 +925,32 @@ These are environment/toolchain limitations, not currently demonstrated applicat
 
 ---
 
-### 2026-10-12 — Phase 11 — Watchlists + Calendar + Alerts (Backend Complete)
+### 2026-10-13 — Phase 11 COMPLETE: Watchlists + Calendar + Alerts (Frontend + Backend)
 
-**Backend Implementation: ✅ COMPLETE**
+**Backend Implementation: ✅ COMPLETE** (2026-10-12)
 
-**Watchlists — Full CRUD + Item Management:**
+**Frontend Integration: ✅ COMPLETE** (2026-10-13)
+
+**WatchlistPage — Full CRUD + Item Management:**
 - Create/read/update/delete watchlists with name, description, sort_order
 - Default watchlist designation
 - Add/remove/reorder symbols with optional notes
+- Symbol validation (1-5 uppercase letters), duplicate detection
 - Get all watchlists, default watchlist, watchlists containing a symbol
-- Symbols stored with sort_index for custom ordering
 
-**Calendar Export (.ics):**
+**CalendarPage — .ics Export with Filters:**
 - Standards-compliant iCalendar (RFC 5545) output
 - Filters: event_types, symbols, date range, importance
 - Event types: macro, earnings, earnings_result, earnings_guidance, dividend, stock_split, merger_acquisition, spinoff, corporate_action
 - Smart duration: 2hr for major macro (FOMC/CPI/NFP/GDP/PCE), 1hr for earnings, 30min default
-- Categories include event_type and importance
+- **Unknown-time semantics**: Events without exact time export as all-day (DATE format), BMO/AMC session semantics preserved in description
 
-**Alerts — Configuration + Trigger System:**
+**AlertsPage — Configuration + Trigger System:**
 - Alert types: price, price_change_pct, volume, earnings, earnings_surprise, guidance_change, filing, insider, leadership, news, macro_event, quant_score
 - Conditions: above/below/equals/crosses_above/crosses_below/changes
-- Severity: info/warning/critical
-- Channels: in_app, email, webhook
-- Cooldown support (default 60 min)
-- Trigger recording with acknowledgment workflow
-- Test endpoint for dry-run evaluation
+- Channels: in_app, email, webhook (email/webhook noted as requiring backend infrastructure)
+- Cooldown support, trigger history, acknowledgment workflow
+- Test/dry-run endpoint
 
 **API Endpoints Added:**
 | Category | Endpoints |
@@ -967,17 +967,12 @@ These are environment/toolchain limitations, not currently demonstrated applicat
 - Alert creation + trigger system working
 - All endpoints returning correct response models
 
-**Frontend Integration: ✅ COMPLETE**
-- WatchlistPage: Full CRUD + item management with Add Symbol modal
-- CalendarPage: `.ics` export with filters, proper unknown-time semantics
-- AlertsPage: Full configuration + trigger history + test/dry-run + acknowledgment
-
-**Test Matrix (Phase 11):**
+**Test Matrix (Phase 11 Final):**
 - Backend Python: **286 passed / 34 skipped** (all Phase 1-10 tests still pass)
 - Frontend TypeScript: **PASS**
 - Frontend Build: **PASS**
 - Frontend Lint: **PASS** (pre-existing issues only)
-- New Phase 11 endpoints tested manually via curl — all functional
+- Backend unit tests: **286 passed / 34 skipped**
 
 **Phase 11 COMPLETE — Frontend + Backend both PASS**
 

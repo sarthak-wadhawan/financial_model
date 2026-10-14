@@ -5,7 +5,7 @@ import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Any
 
@@ -148,7 +148,7 @@ class AlertStore:
                 alert.name,
                 alert.description,
                 alert.alert_type.value,
-                json.dumps([s.upper() for s in alert.symbols]),
+                json.dumps(list(dict.fromkeys(s.strip().upper() for s in alert.symbols if s.strip()))),
                 alert.condition.value,
                 alert.threshold,
                 alert.threshold_secondary,
@@ -216,9 +216,9 @@ class AlertStore:
 
         for key, db_field in field_mapping.items():
             val = getattr(update, key, None)
-            if val is not None:
+            if val is not None or (key in update.model_fields_set and key in ["description", "threshold", "threshold_secondary"]):
                 if db_field in ["symbols", "channels"]:
-                    val = json.dumps([v.upper() for v in val]) if isinstance(val, list) else json.dumps(val)
+                    val = json.dumps([v.strip().upper() for v in val]) if db_field == "symbols" else json.dumps(val)
                 elif db_field == "metadata":
                     val = json.dumps(val)
                 fields.append(f"{db_field} = ?")
