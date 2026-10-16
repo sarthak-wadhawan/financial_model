@@ -3,7 +3,7 @@
 ## Resume
 - Branch: **`work/trading-copilot-ux`**. No main merge, Phase12, retraining or live trading.
 - Exact checkpoint SHA: `git log -1 --format=%H -- docs/WORK_CHECKPOINT.md` (a commit cannot embed its own hash).
-- Last verified source push: `e6371260e019e631a03eed692d99cc770f485fbd` (SEC retry budget). Earlier recovery WIP `9855c4ba`, UX1 `e86624d6`, chart integration `0564696f`. All were pushed; remote SHAs confirmed for recovery/source checkpoints.
+- Last verified source push: **`21779ece98a8e207fcb9dcab9157cffabd8ae303`** (accepted chart leaf); UX2a acceptance `77393ab6`, source/retry `e6371260`. Earlier recovery WIP `9855c4ba`, UX1 `e86624d6`. All pushed; latest origin SHA matched.
 - Resume command: `git fetch origin && git switch work/trading-copilot-ux && git pull --ff-only origin work/trading-copilot-ux`; preserve local changes before switching. Read the existing UX section of `current_task_graph.md`; do not recreate the DAG.
 
 ## Completed / verified
@@ -16,12 +16,12 @@
 - **UX2b schedules/feed bridge, UX2c bars contract, UX2d per-symbol coverage remain open. Full UX2 is NOT PASS.** Source investigation is saved in `UX_DATA_CONTRACT_AUDIT.md`.
 - **UX3a/b chart implementation/integration exists**, including Lightweight Charts5.2.1 and real daily range requests. Initial real-browser review verified all5 symbols/ranges and interactions but returned PARTIAL on presentation/provider link/touch guidance.
 - Chart polish independently accepted: collapsed source details/link, coordinated palette, touch guidance, horizontal mobile tabs and truthful updated E2E identity-heading assertions.38 targeted chart/StockPage tests, TS/scoped lint PASS. Six affected source/test files are selectively published with this checkpoint; no databases/generated files.
-- Current agents: none; chart Reviewer `ses_eb8ff6435ffe0RH53KNvHUC0qe` finished PASS. Prior sessions are historical references; repository files are the portable memory.
+- Current agents: **UX2c bars BUILD** `ses_eb8f6fd2dffepBMSrHyC4QoQ0R` owns website_data bars/price metadata + main bars route + new tests; **UX2b schedule BUILD** `ses_eb8f6ce9bffeK40m4zCDrcwgHl` owns website_sources/IR provider/new parser/tests only. Neither edits the other's files; main.py schedule projection waits for bars BUILD. Prior reviewers finished PASS. Session IDs are historical/machine-local references; repository contracts are portable.
 - **UX4–UX9 and remaining stock-summary/earnings/actions requirements remain incomplete.** No overall overhaul completion claim or final broad regression yet.
 
 ## Exact next action
-1. Push this verified chart-leaf/checkpoint update and confirm remote SHA. UX2a acceptance already pushed/confirmed at `77393ab6`.
-2. Continue existing UX2c bounded bars/range metadata and UX2b schedule-source implementation with nonoverlapping ownership. Keep main.py edits serialized. Maximum2 agents. Independent provider/security/reviewer gates before node PASS.
+1. Consume UX2c range and UX2b source-ingestion results; preserve partial code and selectively WIP-checkpoint if needed. Do not rebuild completed identity/chart leaves.
+2. Run targeted affected checks and independent provider/security boundary review. After main.py bars ownership is released, integrate next-earnings projection and stock/calendar presentation in bounded follow-ups. Keep main.py edits serialized; maximum2 agents. Neither active leaf is PASS yet.
 4. One broad regression near final UX8 only; preserve valid targeted evidence now.
 
 ## Runtime / evidence / limits
