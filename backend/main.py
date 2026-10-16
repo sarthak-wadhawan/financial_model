@@ -309,7 +309,7 @@ def get_stock_detail(symbol: str) -> dict:
     events = event_store.events_for_symbol(symbol, limit=50)
     price = market_adapter.price(symbol)
     quant = market_adapter.quant(symbol)
-    metadata = next((s for s in market_adapter.search(symbol, 50) if s["symbol"] == symbol), {})
+    metadata = market_adapter.identity(symbol)
     
     # Get price data
     # Get quant scores
@@ -317,6 +317,7 @@ def get_stock_detail(symbol: str) -> dict:
     return {
         "symbol": symbol,
         "name": metadata.get("name"), "exchange": metadata.get("exchange"),
+        "identity": metadata,
         "price": price["price"], "change": price["change"], "change_pct": price["change_pct"], "volume": price["volume"],
         "market_cap": None, "pe_ratio": None, "dividend_yield": None,
         "interpretation": interpretation.model_dump() if interpretation else None,

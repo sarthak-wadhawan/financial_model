@@ -5,9 +5,13 @@ No fixture fallback in real mode, no LLM, no broker/order endpoints.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from threading import RLock
+from threading import RLock, Event, Thread
 from pathlib import Path
+import time as clock
+import hashlib
 import json
+import os
+import uuid
 
 from trading_copilot.config import get_alpaca_config
 from trading_copilot.providers.alpaca_market import create_market_data_provider
@@ -15,10 +19,170 @@ from trading_copilot.pipeline.universe import MockUniverseProvider
 from trading_copilot.pipeline.features import FeatureEngine
 from trading_copilot.pipeline.eligibility import EligibilityFilter
 from trading_copilot.pipeline.quant_score import QuantScorer
+from trading_copilot.providers.sec_cik_map import SECCIKMap, DEFAULT_CACHE_DIR, SEC_EXCHANGE_TICKERS_URL
+
+
+class OfficialIdentitySnapshot:
+    """Shared official identity snapshot, independent of prices and event ingestion.
+
+    A cold lookup may start ONE background map request via the normal SEC fair-access
+    transport and wait at most one second. Subsequent reads share the job. Freshness
+    is 24h; errors have a five-minute cooldown. Stale evidence remains readable.
+    No submissions/filings crawl occurs in GET. ``refresh`` is the explicit write/
+    network contract for operators and future normal-refresh integration.
+    """
+    WAIT_SECONDS = 1.0
+    ERROR_COOLDOWN = 300
+
+    def __init__(self, user_agent=None, cache_dir=DEFAULT_CACHE_DIR, transport=None):
+        self.cik_map = SECCIKMap(cache_dir, max_age_days=1, user_agent=user_agent,
+            transport=transport, source_url=SEC_EXCHANGE_TICKERS_URL)
+        # Disk reads must not mutate the writer's in-flight normalization state.
+        self._cache_reader = SECCIKMap(cache_dir, max_age_days=1,
+            transport=self.cik_map.transport, source_url=SEC_EXCHANGE_TICKERS_URL)
+        self.enabled = bool(user_agent or transport)
+        self._lock = RLock()
+        self._refresh_lock = RLock()
+        self._done = Event()
+        self._done.set()
+        self._next_attempt = 0.0
+        self._error = False
+        self.mapping, self.snapshot = {}, {}
+        self._cache_signature = None
+        self._read_cache()
+
+    def _read_cache(self):
+        """Synchronize external provider refreshes, including a formerly missing file."""
+        with self._lock:
+            try:
+                stat = self.cik_map.cache_file.stat()
+                signature = (stat.st_mtime_ns, stat.st_size)
+                if signature != self._cache_signature:
+                    if self._cache_reader._load_cache(allow_stale=True):
+                        self.mapping = dict(self._cache_reader._mapping)
+                        self.snapshot = dict(self._cache_reader.snapshot)
+                        self._error = False
+                    else:
+                        self._error = True
+                    self._cache_signature = signature
+            except OSError:
+                pass
+
+    def _fresh(self):
+        fetched_at = self.snapshot.get("fetched_at")
+        return (isinstance(fetched_at, (float, int))
+                and 0 <= clock.time() - fetched_at < self.cik_map.max_age_seconds
+                and self.snapshot.get("schema_version") == 2
+                and self.snapshot.get("source_url") == SEC_EXCHANGE_TICKERS_URL)
+
+    def refresh(self):
+        """One official map, preserving raw facts/history. Never raises into UI."""
+        with self._refresh_lock:
+            self._refresh()
+
+    def _refresh(self):
+        try:
+            self.cik_map.refresh()
+            self._read_cache()
+            with self._lock:
+                self._error = False
+        except Exception:
+            with self._lock:
+                self._error = True
+        finally:
+            with self._lock:
+                self._next_attempt = clock.monotonic() + self.ERROR_COOLDOWN
+                self._done.set()
+
+    def record_submissions(self, raw, retrieved_at):
+        """Accept already-fetched submissions only with an actual observation time.
+
+        This does not fetch anything or infer an as-of date from a filing date/file
+        mtime. Callers can bridge existing normal refresh without a second SEC GET.
+        SIC is an industry scheme, never sector/GICS or an officer roster.
+        """
+        cik = str(raw["cik"]).zfill(10)
+        observed = datetime.fromisoformat(retrieved_at.replace("Z", "+00:00"))
+        if not cik.isdigit() or len(cik) != 10 or observed.tzinfo is None:
+            raise ValueError("Invalid submissions observation")
+        data = dict(raw=raw, retrieved_at=observed.isoformat(),
+            source_url=f"https://data.sec.gov/submissions/CIK{cik}.json")
+        data["snapshot_id"] = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        folder = self.cik_map.cache_dir / "snapshots"
+        folder.mkdir(exist_ok=True)
+        encoded = json.dumps(data)
+        (folder / (data["snapshot_id"] + ".json")).write_text(encoded)
+        current = self.cik_map.cache_dir / f"submissions_{cik}.json"
+        temporary = current.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        temporary.write_text(encoded)
+        os.replace(temporary, current)
+
+    def _submissions(self, symbol, cik):
+        if not cik:
+            return None
+        try:
+            data = json.loads((self.cik_map.cache_dir / f"submissions_{cik}.json").read_text())
+            digest = hashlib.sha256(json.dumps({k: v for k, v in data.items()
+                if k != "snapshot_id"}, sort_keys=True).encode()).hexdigest()
+            raw = data["raw"]
+            if (data["snapshot_id"] != digest or str(raw["cik"]).zfill(10) != cik
+                    or symbol not in raw.get("tickers", [])
+                    or data["source_url"] != f"https://data.sec.gov/submissions/CIK{cik}.json"):
+                return None
+            return data
+        except (ValueError, KeyError, OSError, TypeError):
+            return None
+
+    def read(self):
+        self._read_cache()
+        with self._lock:
+            cold = not self.mapping
+            if (self.enabled and not self._fresh() and self._done.is_set()
+                    and clock.monotonic() >= self._next_attempt):
+                self._done.clear()
+                Thread(target=self.refresh, name="sec-identity-snapshot", daemon=True).start()
+        if cold:
+            self._done.wait(self.WAIT_SECONDS)
+        with self._lock:
+            return dict(self.mapping), dict(self.snapshot)
+
+    def identity(self, symbol):
+        mapping, snapshot = self.read()
+        entry = mapping.get(symbol, {})
+        observed = snapshot.get("retrieved_at")
+        url = snapshot.get("source_url")
+        with self._lock:
+            fresh, error, pending = self._fresh(), self._error, not self._done.is_set()
+        status = ("available" if fresh and observed and entry.get("exchange") else "partial" if fresh else "stale"
+                  if observed else "partial") if entry else (
+                  "provider_error" if error else "empty" if fresh else "not_refreshed")
+        fields = {}
+        for field, key in (("name", "title"), ("cik", "cik"), ("exchange", "exchange")):
+            if entry.get(key) is not None:
+                fields[field] = dict(source_url=url, retrieved_at=observed,
+                    evidence_span=json.dumps({"ticker": symbol, key: entry[key]}),
+                    source_effective_at=None, snapshot_id=snapshot.get("snapshot_id"))
+        industry = None
+        submissions = self._submissions(symbol, entry.get("cik"))
+        if submissions:
+            raw = submissions["raw"]
+            if raw.get("sic") and raw.get("sicDescription"):
+                industry = dict(scheme="SEC_SIC", code=str(raw["sic"]), label=raw["sicDescription"])
+                fields["industry"] = dict(source_url=submissions["source_url"],
+                    retrieved_at=submissions["retrieved_at"], source_effective_at=None,
+                    evidence_span=json.dumps({k: raw[k] for k in ("sic", "sicDescription")}),
+                    snapshot_id=submissions["snapshot_id"])
+        return dict(symbol=symbol, cik=entry.get("cik"), name=entry.get("title"),
+            exchange=entry.get("exchange"), sector=None, industry=industry, description=None,
+            status=status, coverage="official_ticker_map" if entry else "symbol_not_verified",
+            source="SEC", source_url=url, retrieved_at=observed, verified_as_of=observed if entry else None,
+            verification_scope="official_snapshot", fields=fields,
+            snapshot_id=snapshot.get("snapshot_id"), refresh_pending=pending,
+            refresh_status="provider_error" if error else "pending" if pending else "idle")
 
 
 class WebsiteDataAdapter:
-    def __init__(self, config, settings, provider=None, mode="real"):
+    def __init__(self, config, settings, provider=None, mode="real", identity_service=None):
         if mode not in {"real", "demo"}:
             raise ValueError("Invalid website data mode")
         self.config, self.mode = config, mode
@@ -43,14 +207,19 @@ class WebsiteDataAdapter:
         if config.universe.symbols_file:
             symbols = [s.strip().upper() for s in Path(config.universe.symbols_file).read_text().splitlines() if s.strip() and not s.startswith("#")]
         self.symbols = sorted(set(symbols))
-        self.metadata = {}
-        # Read previously retrieved official map without network/startup credential disclosure.
-        cache = Path("artifacts/cache/sec_cik/company_tickers.json")
-        if cache.exists():
-            try:
-                self.metadata = json.loads(cache.read_text()).get("mapping", {})
-            except (ValueError, OSError):
-                pass
+        self.identity_service = identity_service or OfficialIdentitySnapshot(
+            user_agent=settings.sec_user_agent if mode == "real" else None)
+
+    def identity(self, symbol):
+        return self.identity_service.identity(symbol.upper())
+
+    def refresh_identity(self):
+        """Explicit identity-only refresh; does not mutate the private event database."""
+        self.identity_service.refresh()
+
+    @property
+    def metadata(self):
+        return self.identity_service.read()[0]
 
     def _meta(self, status, reason=None, retrieved_at=None, market_timestamp=None):
         return dict(status=status, reason=reason, mode=self.mode, source=self.source,
@@ -110,14 +279,15 @@ class WebsiteDataAdapter:
 
     def search(self, q, limit=10):
         q = q.strip().upper()
-        symbols = set(self.symbols) | set(self.metadata)
-        matches = [s for s in symbols if q in s or q in self.metadata.get(s, {}).get("title", "").upper()]
+        metadata = self.metadata
+        symbols = set(self.symbols) | set(metadata)
+        matches = [s for s in symbols if q in s or q in metadata.get(s, {}).get("title", "").upper()]
         return [dict(
             symbol=s,
-            name=self.metadata.get(s, {}).get("title"),
-            exchange=self.metadata.get(s, {}).get("exchange"),
+            name=metadata.get(s, {}).get("title"),
+            exchange=metadata.get(s, {}).get("exchange"),
             type="equity",
-            source="SEC ticker cache" if s in self.metadata else "configured ticker universe"
+            source="SEC ticker cache" if s in metadata else "configured ticker universe"
         ) for s in sorted(matches, key=lambda s: (s != q, s))[:limit]]
 
     def price(self, symbol):

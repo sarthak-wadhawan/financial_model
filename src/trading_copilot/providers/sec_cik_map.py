@@ -9,6 +9,10 @@ from __future__ import annotations
 import json
 import logging
 import time
+import hashlib
+import os
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 # SEC company tickers endpoint (official, no auth required)
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
-# Alternative: https://www.sec.gov/files/company_tickers_exchange.json (includes exchange)
+SEC_EXCHANGE_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
+DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[3] / "artifacts/cache/sec_cik"
 
 
 class SECCIKMap:
@@ -26,10 +31,11 @@ class SECCIKMap:
 
     def __init__(
         self,
-        cache_dir: str | Path = "artifacts/cache/sec_cik",
+        cache_dir: str | Path = DEFAULT_CACHE_DIR,
         max_age_days: int = 30,
         user_agent: str | None = None,
         transport: SECTransport | None = None,
+        source_url: str = SEC_TICKERS_URL,
     ):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -37,6 +43,8 @@ class SECCIKMap:
         self.max_age_seconds = max_age_days * 24 * 60 * 60
 
         self.user_agent = user_agent
+        self.source_url = source_url
+        self.snapshot: dict[str, Any] = {}
         self.transport = transport or SECTransport(user_agent)
 
         self._mapping: dict[str, dict[str, Any]] = {}
@@ -45,40 +53,99 @@ class SECCIKMap:
 
     def _fetch_from_sec(self) -> dict[str, Any]:
         """Fetch company tickers from SEC."""
-        return self.transport.get(SEC_TICKERS_URL).json()
+        return self.transport.get(self.source_url).json()
 
-    def _load_cache(self) -> bool:
+    @staticmethod
+    def normalize(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Accept both official SEC schemas; preserve legacy cik/title consumers."""
+        if "fields" in raw:
+            fields = raw["fields"]
+            if not {"cik", "name", "ticker", "exchange"}.issubset(fields):
+                raise ValueError("Invalid SEC exchange schema")
+            rows = [dict(zip(fields, row, strict=True)) for row in raw["data"]]
+        else:
+            rows = list(raw.values())
+        mapping = {}
+        for entry in rows:
+            cik = str(entry.get("cik_str", entry.get("cik"))).zfill(10)
+            ticker = entry["ticker"].strip().upper()
+            title = entry.get("title", entry.get("name"))
+            exchange = entry.get("exchange")
+            if (not cik.isdigit() or len(cik) != 10 or not ticker
+                    or not isinstance(title, str) or not title.strip()
+                    or (exchange is not None and not isinstance(exchange, str))):
+                raise ValueError("Invalid SEC identity row")
+            mapping.setdefault(ticker, {"cik": cik, "title": title, "exchange": exchange or None})
+        if not mapping:
+            raise ValueError("Empty SEC mapping")
+        return mapping
+
+    def _load_cache(self, allow_stale: bool = False) -> bool:
         """Load mapping from cache file if fresh enough."""
         if not self.cache_file.exists():
-            return False
-
-        # Check cache age
-        mtime = self.cache_file.stat().st_mtime
-        if time.time() - mtime > self.max_age_seconds:
-            logger.info("SEC CIK cache expired, will refresh")
             return False
 
         try:
             with open(self.cache_file) as f:
                 data = json.load(f)
-            self._mapping = data.get("mapping", {})
-            self._reverse_mapping = data.get("reverse_mapping", {})
+            mapping = data["mapping"]
+            if not isinstance(mapping, dict) or not mapping:
+                return False
+            # Validate old and new normalized caches before exposing any entry.
+            normalized = self.normalize({s: {"ticker": s, "cik_str": e["cik"],
+                "title": e["title"], "exchange": e.get("exchange")} for s, e in mapping.items()})
+            if data.get("schema_version") == 2:
+                digest_data = {k: v for k, v in data.items() if k != "snapshot_id"}
+                digest = hashlib.sha256(json.dumps(digest_data, sort_keys=True).encode()).hexdigest()
+                if (data.get("snapshot_id") != digest
+                        or data.get("source_url") not in {SEC_TICKERS_URL, SEC_EXCHANGE_TICKERS_URL}
+                        or self.normalize(data["raw"]) != normalized):
+                    return False
+            fetched_at = data.get("fetched_at")
+            if not allow_stale and (not isinstance(fetched_at, (int, float))
+                    or not 0 <= time.time() - fetched_at <= self.max_age_seconds):
+                return False
+            self._mapping = normalized
+            self._reverse_mapping = {e["cik"]: s for s, e in normalized.items()}
+            self.snapshot = {k: data.get(k) for k in
+                ("schema_version", "source_url", "retrieved_at", "snapshot_id", "fetched_at")}
+            if not self.snapshot["retrieved_at"] and isinstance(fetched_at, (int, float)):
+                self.snapshot["retrieved_at"] = datetime.fromtimestamp(fetched_at, timezone.utc).isoformat()
+            self.snapshot["source_url"] = data.get("source_url") or SEC_TICKERS_URL
             self._loaded = True
             logger.info(f"Loaded {len(self._mapping)} symbol-CIK mappings from cache")
             return True
-        except Exception as e:
-            logger.warning(f"Failed to load CIK cache: {e}")
+        except Exception:
+            logger.warning("Failed to load CIK cache")
             return False
 
-    def _save_cache(self) -> None:
+    def _save_cache(self, raw: dict[str, Any] | None = None) -> None:
         """Save mapping to cache file."""
         data = {
             "mapping": self._mapping,
             "reverse_mapping": self._reverse_mapping,
             "fetched_at": time.time(),
+            "schema_version": 2,
+            "source_url": self.source_url,
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "raw": raw,
         }
-        with open(self.cache_file, "w") as f:
-            json.dump(data, f)
+        history = self.cache_dir / "snapshots"
+        history.mkdir(exist_ok=True)
+        # Preserve the previous bytes too, including legacy or corrupt caches.
+        if self.cache_file.exists():
+            previous = self.cache_file.read_bytes()
+            old = history / (hashlib.sha256(previous).hexdigest() + ".json")
+            if not old.exists():
+                old.write_bytes(previous)
+        data["snapshot_id"] = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        encoded = json.dumps(data)
+        (history / (data["snapshot_id"] + ".json")).write_text(encoded)
+        temporary = self.cache_file.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        temporary.write_text(encoded)
+        os.replace(temporary, self.cache_file)
+        self.snapshot = {k: data[k] for k in
+            ("schema_version", "source_url", "retrieved_at", "snapshot_id", "fetched_at")}
         logger.info(f"Saved {len(self._mapping)} symbol-CIK mappings to cache")
 
     def ensure_loaded(self) -> None:
@@ -90,39 +157,28 @@ class SECCIKMap:
             logger.info("Fetching SEC company tickers...")
             try:
                 raw_data = self._fetch_from_sec()
-                # Official cik_str values are integers; normalize before zero-padding.
-                for entry in raw_data.values():
-                    cik = str(entry["cik_str"]).zfill(10)
-                    if not cik.isdigit() or len(cik) != 10:
-                        raise ValueError("Invalid SEC CIK")
-                    ticker = entry["ticker"].upper()
-                    title = entry["title"]
-
-                    # Handle duplicate tickers (keep first, log warning)
-                    if ticker in self._mapping:
-                        logger.debug(f"Duplicate ticker {ticker}: {self._mapping[ticker]['cik']} vs {cik}")
-                        continue
-
-                    self._mapping[ticker] = {
-                        "cik": cik,
-                        "title": title,
-                    }
-                    self._reverse_mapping[cik] = ticker
-
-                self._save_cache()
-                self._loaded = True
-            except Exception as e:
-                logger.error(f"Failed to fetch SEC tickers: {e}")
+                self.refresh(raw_data)
+            except Exception:
+                logger.error("Failed to fetch SEC tickers")
                 # Try to load stale cache as fallback
-                if self.cache_file.exists():
-                    with open(self.cache_file) as f:
-                        data = json.load(f)
-                    self._mapping = data.get("mapping", {})
-                    self._reverse_mapping = data.get("reverse_mapping", {})
-                    self._loaded = True
+                if self._load_cache(allow_stale=True):
                     logger.warning("Using stale cache as fallback")
                 else:
                     raise
+
+    def refresh(self, raw: dict[str, Any] | None = None) -> None:
+        """Explicit refresh retains raw observations and all previous cache versions."""
+        raw = self._fetch_from_sec() if raw is None else raw
+        mapping = self.normalize(raw)
+        previous = self._mapping, self._reverse_mapping
+        self._mapping = mapping
+        self._reverse_mapping = {e["cik"]: s for s, e in mapping.items()}
+        try:
+            self._save_cache(raw)
+        except Exception:
+            self._mapping, self._reverse_mapping = previous
+            raise
+        self._loaded = True
 
     def get_cik(self, symbol: str) -> Optional[str]:
         """Get CIK for a symbol (returns 10-digit zero-padded string)."""
@@ -167,7 +223,7 @@ _global_cik_map: SECCIKMap | None = None
 
 
 def get_cik_map(
-    cache_dir: str | Path = "artifacts/cache/sec_cik",
+    cache_dir: str | Path = DEFAULT_CACHE_DIR,
     max_age_days: int = 30,
     user_agent: str | None = None,
 ) -> SECCIKMap:
