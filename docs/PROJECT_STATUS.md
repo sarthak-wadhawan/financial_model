@@ -6,6 +6,8 @@ User authorized the KISS stock-first website overhaul after R1. Dedicated branch
 
 Progress since initial plan: **UX1 independently PASS** (shell, one collapsible nav, global search/history, coordinated themes, desktop/mobile keyboard behavior). Focused final shell tests10 passed; earlier broader targeted set35 passed and TypeScript/lint passed. UX2 source audit published; identity bridge active, not accepted. UX2–UX9 remain open; this is not product completion.
 
+Latest: **UX2a bounded identity PASS**. All5 target names/exchanges resolve from attributed officialSEC snapshots, unknown profiles remain unknown. Provider/focused recheck103 tests +4 original reproductions PASS; Security138 focused tests PASS after retry-budget fix. New normal backend clean-restarted; independent20 direct/proxy GETs and parent5-company Chromium rendering passed. Chart polish38 tests/TS/scoped lint PASS but independent recheck pending. FullUX2, fullUX3 and UX4–UX9 remain open. See portable checkpoint for exact next action; no main merge/Phase12.
+
 ## Current — R1 normal-runtime integration verified (2026-10-16)
 
 The prior functional-completion claim at `c9b77fbd` was withdrawn. Actual user testing exposed Vite3000 serving without a FastAPI8000 listener: local watchlists failed through the proxy as500 while direct8000 refused connections. R1 repairs normal startup rather than blaming providers: **`npm --prefix frontend run dev`** now owns both servers, gates Vite on initialized JSON backend/database health, tolerates transient probe failures and refuses unknown occupied ports. Backend Settings loads root `.env` without manual credential exports.
