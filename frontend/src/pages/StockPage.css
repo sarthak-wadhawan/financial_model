@@ -1,0 +1,11 @@
+.stock-page .stock-header-main { justify-content: space-between; }
+.stock-page .stock-identity { flex-direction: column; gap: 0.25rem; }
+.stock-page .stock-identity h1 { overflow-wrap: anywhere; }
+.stock-page .stock-price { display: flex; flex-direction: column; gap: 0.25rem; }
+.stock-page .price-change.positive { color: var(--color-success, #15803d); }
+.stock-page .price-change.negative { color: var(--color-danger); }
+.stock-page .stock-next-earnings { margin-block: 0.75rem; }
+.stock-page .stock-diagnostics { margin-block: 1rem; color: var(--color-text-secondary); }
+.stock-page .stock-diagnostics summary { cursor: pointer; }
+.stock-page .stock-diagnostics p { overflow-wrap: anywhere; }
+.stock-page .stock-content > .price-history { margin-bottom: 1.5rem; }

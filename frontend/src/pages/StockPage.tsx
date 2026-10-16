@@ -4,6 +4,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
 import type { Interpretation } from '../services/api'
 import { Badge } from '../components/ui'
+import { PriceHistoryChart } from '../components/stock/PriceHistoryChart'
+import './StockPage.css'
 import { DataStatus, displayDate, displayNumber, EventTiming, ProviderCoverage, record, SourceLink, Term, text } from '../components/ui/ResearchData'
 
 const tabs = ['overview', 'earnings', 'events', 'news', 'management', 'insiders', 'leadership', 'filings', 'quant']
@@ -14,7 +16,6 @@ export function StockPage() {
   const [activeTab, setActiveTab] = useState('overview')
   const detail = useQuery({ queryKey: ['stockDetail', symbol], queryFn: () => api.getStockDetail(symbol), enabled: !!symbol })
   const interpretation = useQuery({ queryKey: ['interpretation', symbol], queryFn: () => api.getInterpretation(symbol), enabled: !!symbol })
-  const bars = useQuery({ queryKey: ['stockBars', symbol], queryFn: () => api.getBars(symbol, '1Day', undefined, undefined, 20), enabled: !!symbol })
   const section = useQuery<unknown>({ queryKey: ['stockSection', symbol, activeTab], enabled: !!symbol && activeTab !== 'overview', queryFn: () => {
     switch (activeTab) {
       case 'earnings': return api.getEarnings(symbol)
@@ -28,24 +29,35 @@ export function StockPage() {
     }
   } })
   const stock = record(detail.data), priceData = record(stock.price_data)
-  const history = record(bars.data)
+  const identity = record(stock.identity)
+  const change = finite(stock.change), changePct = finite(stock.change_pct)
+  const direction = change ?? changePct
+  const changeStyle = direction === null || direction === 0 ? 'neutral' : direction > 0 ? 'positive' : 'negative'
+  const scheduledResults = (detail.data?.events ?? []).filter(event => {
+    const metadata = record(event.metadata)
+    const date = event.scheduled_at ?? (typeof metadata.event_date === 'string' ? metadata.event_date : null)
+    return event.event_type === 'earnings' && event.status === 'scheduled' && !event.released_at && !metadata.is_estimate && !metadata.estimated && !/(call|conference|webcast)/i.test(`${event.title} ${text(metadata.event_subtype, '')}`) && !!date && Number.isFinite(Date.parse(date)) && date.slice(0, 10) >= new Date().toISOString().slice(0, 10)
+  }).sort((a, b) => text(a.scheduled_at ?? record(a.metadata).event_date).localeCompare(text(b.scheduled_at ?? record(b.metadata).event_date)))
+  const nextResults = scheduledResults[0]
   if (!symbol) return <div className="empty-state">No symbol specified.</div>
   return <div className="stock-page">
-    <div className="stock-header"><div className="stock-header-main"><div className="stock-identity"><h1>{symbol}</h1><span className="stock-exchange">{text(stock.name, 'Company name unavailable')} · {text(stock.exchange, 'Exchange unavailable')}</span></div><div className="stock-price"><span className="current-price">{typeof stock.price === 'number' ? `$${displayNumber(stock.price, 2)}` : 'Price unavailable'}</span><span className="price-change neutral">Daily change: {typeof stock.change_pct === 'number' ? `${displayNumber(stock.change_pct, 2)}%` : 'Unavailable'}</span></div></div>
+    <div className="stock-header"><div className="stock-header-main"><div className="stock-identity"><h1>{text(stock.name, symbol)}</h1><span className="stock-exchange">{symbol} · {text(stock.exchange, 'Exchange unavailable')}</span>{detail.isSuccess && !stock.name && <p className="data-status">Company name unavailable</p>}</div><div className="stock-price"><span className="current-price">{finite(stock.price) !== null ? `$${displayNumber(stock.price, 2)}` : 'Price unavailable'}</span><span className={`price-change ${changeStyle}`}>Daily change: {change === null ? 'Unavailable' : signedChange(change, '$')} ({changePct === null ? 'Unavailable' : signedChange(changePct, '%')})</span></div></div>
       <DataStatus loading={detail.isLoading} error={detail.isError} label="company details and daily close" />
-      <p className="data-status">Latest completed daily close, not a live quote. <Provenance data={priceData} /></p>
+      <p className="data-status">Latest completed daily close, not a live quote. {displayDate(typeof priceData.market_timestamp === 'string' ? priceData.market_timestamp : null)} · Source: {text(priceData.source)}{priceData.mode === 'demo' ? ' · Demo/test data' : ''}</p>
+      <p className="stock-next-earnings">{nextResults ? <>Next scheduled earnings results: <EventTiming event={nextResults} /> · Source: {nextResults.source} <SourceLink url={nextResults.source_url} /></> : 'Next earnings date not yet confirmed'}</p>
+      {!!Object.keys(identity).length && <p className="data-status">Company identity: {text(identity.source)} · Verified as of {displayDate(typeof identity.verified_as_of === 'string' ? identity.verified_as_of : null)} · {text(identity.status, 'Status unavailable')}</p>}
+      <details className="stock-diagnostics"><summary>Price & identity provenance</summary><p><Provenance data={priceData} /></p>{!!Object.keys(identity).length && <><p>Identity source: {text(identity.source)} · Retrieved: {text(identity.retrieved_at)} · Status: {text(identity.status)}{identity.reason ? ` · ${text(identity.reason)}` : ''}</p><SourceLink url={identity.source_url}>Identity source</SourceLink></>}</details>
       <nav className="stock-tabs" role="tablist" aria-label="Stock sections">{tabs.map(tab => <button key={tab} type="button" role="tab" id={`stock-tab-${tab}`} aria-controls="stock-panel" aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)} onKeyDown={e => {
         const i = tabs.indexOf(tab)
         const next = e.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length] : e.key === 'ArrowLeft' ? tabs[(i + tabs.length - 1) % tabs.length] : e.key === 'Home' ? tabs[0] : e.key === 'End' ? tabs[tabs.length - 1] : null
         if (next) { e.preventDefault(); setActiveTab(next); document.getElementById(`stock-tab-${next}`)?.focus() }
       }}>{tab.charAt(0).toUpperCase() + tab.slice(1)}</button>)}</nav>
     </div>
-    <ProviderCoverage key={symbol} symbol={symbol} />
     <div className="stock-content" id="stock-panel" role="tabpanel" aria-labelledby={`stock-tab-${activeTab}`} tabIndex={0}>
       {activeTab === 'overview' ? <>
+        <PriceHistoryChart symbol={symbol} />
         <DataStatus loading={interpretation.isLoading} error={interpretation.isError} empty={interpretation.isSuccess && !interpretation.data} label="Phase 9 interpretation" />
         {interpretation.data && <Overview interpretation={interpretation.data} />}
-        <details className="section price-history"><summary>Price history — provider bars</summary><p className="data-status"><Provenance data={history} /></p><DataStatus loading={bars.isLoading} error={bars.isError} empty={bars.isSuccess && !bars.data?.bars?.length} label="price bars; no chart is inferred from missing data" />{!!bars.data?.bars?.length && <><PriceChart bars={bars.data.bars} /><div className="table-container" tabIndex={0} role="region" aria-label="Daily price history"><table><caption>Daily closes; source calendar dates</caption><thead><tr><th scope="col">Date</th><th scope="col">Close</th><th scope="col">Volume</th></tr></thead><tbody>{bars.data.bars.map(bar => <tr key={bar.t}><td>{displayDate(bar.t)}</td><td>{displayNumber(bar.c, 2)}</td><td>{displayNumber(bar.v, 0)}</td></tr>)}</tbody></table></div></>}</details>
         <AnswerForm key={symbol} symbol={symbol} />
       </> : <>
         <DataStatus loading={section.isLoading} error={section.isError} label={`${activeTab} data`} />
@@ -53,6 +65,7 @@ export function StockPage() {
         {section.isSuccess && (activeTab === 'management' ? <Management data={section.data} /> : activeTab === 'leadership' ? <Leadership data={section.data} /> : activeTab === 'quant' ? <Quant data={section.data} /> : <EventList data={section.data} label={activeTab} />)}
       </>}
     </div>
+    <details className="stock-diagnostics"><summary>Provider diagnostics & coverage</summary><ProviderCoverage key={symbol} symbol={symbol} /></details>
   </div>
 }
 
@@ -124,11 +137,12 @@ function confidence(value: unknown): string {
   return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(0)}%` : 'Unavailable'
 }
 
-function PriceChart({ bars }: { bars: Array<{ t: string; c: number }> }) {
-  const valid = bars.filter(bar => Number.isFinite(bar.c)).slice().sort((a, b) => a.t.localeCompare(b.t))
-  if (valid.length < 2) return <p>At least two valid daily closes are required for a chart.</p>
-  const low = Math.min(...valid.map(bar => bar.c)), high = Math.max(...valid.map(bar => bar.c))
-  const points = valid.map((bar, n) => `${10 + n / (valid.length - 1) * 580},${high === low ? 80 : 150 - (bar.c - low) / (high - low) * 140}`).join(' ')
-  return <figure className="price-history"><figcaption>Daily closing prices, {displayDate(valid[0].t)} to {displayDate(valid[valid.length - 1].t)}. Range ${displayNumber(low, 2)}–${displayNumber(high, 2)}; exact values in the table below.</figcaption><svg width="100%" height="160" viewBox="0 0 600 160" role="img" aria-label="Provider-supplied daily closing price history"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="2" /></svg></figure>
+function finite(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function signedChange(value: number, unit: '$' | '%'): string {
+  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
+  return unit === '$' ? `${sign}$${displayNumber(Math.abs(value), 2)}` : `${sign}${displayNumber(Math.abs(value), 2)}%`
 }
 export default StockPage
