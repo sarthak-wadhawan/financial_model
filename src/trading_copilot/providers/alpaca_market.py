@@ -538,6 +538,9 @@ class AlpacaMarketDataProvider:
         """
         Get historical IEX quotes for a symbol.
 
+        ``limit`` is the page size (integer 1..10000), not a total row cap.
+        Follows all continuation pages for the supplied start/end range.
+
         Returns list of quote dicts with fields:
             - ap: ask price
             - as: ask size
@@ -549,50 +552,7 @@ class AlpacaMarketDataProvider:
             - t: timestamp
             - z: tape
         """
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
-
-        # Check cache
-        cache_key = self._cache_key([symbol], start, end, data_type="quotes")
-        if self.cache:
-            cached = self.cache.get(cache_key)
-            if cached is not None:
-                logger.info("Cache hit for %s (quotes)", symbol)
-                return cached
-
-        start_str = start.isoformat().replace("+00:00", "Z")
-        end_str = end.isoformat().replace("+00:00", "Z")
-
-        params = {
-            "feed": self.feed,
-            "start": start_str,
-            "end": end_str,
-            "limit": limit,
-        }
-
-        logger.debug("Fetching quotes for %s from %s to %s", symbol, start_str, end_str)
-
-        response = self._client.get(f"/v2/stocks/{symbol}/quotes", params=params)
-
-        if response.status_code == 401:
-            raise ValueError("Alpaca authentication failed: check API credentials")
-        elif response.status_code == 403:
-            raise ValueError("Alpaca access forbidden: check subscription/permissions")
-        elif response.status_code == 429:
-            raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
-
-        response.raise_for_status()
-        data = response.json()
-
-        quotes = data.get("quotes", [])
-
-        # Cache the results
-        if self.cache:
-            self.cache.set(cache_key, quotes)
-
-        return quotes
+        return self._get_historical_records("quotes", symbol, start, end, limit)
 
     # ---------------------------------------------------------------------
     # Historical IEX trades
@@ -616,6 +576,9 @@ class AlpacaMarketDataProvider:
         """
         Get historical IEX trades for a symbol.
 
+        ``limit`` is the page size (integer 1..10000), not a total row cap.
+        Follows all continuation pages for the supplied start/end range.
+
         Returns list of trade dicts with fields:
             - c: conditions
             - i: trade ID
@@ -625,56 +588,70 @@ class AlpacaMarketDataProvider:
             - x: exchange
             - z: tape
         """
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
+        return self._get_historical_records("trades", symbol, start, end, limit)
 
-        # Check cache
-        cache_key = self._cache_key([symbol], start, end, data_type="trades")
+    def _get_historical_records(
+        self,
+        data_type: str,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Fetch a complete range; callers retain their existing retry policy."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
+            raise ValueError("Alpaca historical limit must be an integer page size from 1 to 10000")
+
+        # Old quote/trade entries may contain only the first page. Never reuse them.
+        cache_key = self._cache_key(
+            [symbol], start, end, data_type=f"{data_type}-complete-v1"
+        )
         if self.cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
-                logger.info("Cache hit for %s (trades)", symbol)
+                logger.info("Cache hit for %s (%s)", symbol, data_type)
                 return cached
-
-        start_str = start.isoformat().replace("+00:00", "Z")
-        end_str = end.isoformat().replace("+00:00", "Z")
 
         params = {
             "feed": self.feed,
-            "start": start_str,
-            "end": end_str,
+            "start": self._rfc3339(start),
+            "end": self._rfc3339(end),
             "limit": limit,
         }
+        records: list[dict[str, Any]] = []
+        seen_tokens: set[str] = set()
 
-        logger.debug("Fetching trades for %s from %s to %s", symbol, start_str, end_str)
+        while True:
+            response = self._client.get(f"/v2/stocks/{symbol}/{data_type}", params=params)
+            if response.status_code == 401:
+                raise ValueError("Alpaca authentication failed: check API credentials")
+            elif response.status_code == 403:
+                raise ValueError("Alpaca access forbidden: check subscription/permissions")
+            elif response.status_code == 429:
+                raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
 
-        response = self._client.get(f"/v2/stocks/{symbol}/trades", params=params)
+            response.raise_for_status()
+            data = response.json()
+            # Preserve distinct records even when they share a timestamp.
+            records.extend(data.get(data_type, []))
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+            if page_token in seen_tokens:
+                raise ValueError("Repeated Alpaca pagination token")
+            seen_tokens.add(page_token)
+            params["page_token"] = page_token
 
-        if response.status_code == 401:
-            raise ValueError("Alpaca authentication failed: check API credentials")
-        elif response.status_code == 403:
-            raise ValueError("Alpaca access forbidden: check subscription/permissions")
-        elif response.status_code == 429:
-            raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
-
-        response.raise_for_status()
-        data = response.json()
-
-        trades = data.get("trades", [])
-
-        # Cache the results
+        # A failure on any page leaves no partial range in the cache.
         if self.cache:
-            self.cache.set(cache_key, trades)
+            self.cache.set(cache_key, records)
 
-        return trades
+        return records
 
     def health_check(self) -> bool:
-        """Check if Alpaca API is accessible."""
+        """Check free IEX stock-data access without touching trading/account APIs."""
         try:
-            # Simple endpoint to verify credentials
-            response = self._client.get("/v2/account")
+            response = self._client.get("/v2/stocks/SPY/quotes/latest", params={"feed": "iex"})
             return response.status_code == 200
         except Exception:
             return False

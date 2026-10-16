@@ -7,7 +7,8 @@
     "npm": ">=10"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
+    "test:dev": "node --test scripts/dev.test.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx",

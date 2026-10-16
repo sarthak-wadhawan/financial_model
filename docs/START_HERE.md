@@ -1,16 +1,24 @@
 # Trading Copilot — Start Here
 
-> **CURRENT — 2026-10-16: Phase 1–11 local website repair verification PASS. Phase 12 is ON HOLD.** Resumed yesterday's checkpoint without rebuilding the plan; all 48 checkpoint files matched their saved hashes. Final backend: **492 passed / 35 skipped / 0 failed**. Reused unchanged frontend evidence: **161 unit passed / 0 failed**, **112 Chromium E2E passed / 0 failed**, build/TypeScript/lint PASS. Independent Provider Auditor, Security Reviewer and rendered-site Reviewer: **PASS**. See `docs/FULL_SYSTEM_AUDIT.md` and the final section of `docs/current_task_graph.md`; dated handoffs below are historical, not current coverage claims.
+> **CURRENT — 2026-10-16: R1 normal-runtime integration verified.** The earlier functional-completion claim at `c9b77fbd` was withdrawn: Vite was running without FastAPI. The repaired single-command startup was clean-restarted and verified through the **actual browser → Vite3000 → normal FastAPI8000 → original database/providers**, with no interception or test backend for the normal-runtime gate. Final results: **532 backend passed / 35 skipped / 0 failed; 163 frontend unit passed; 15 startup tests passed; 122 Chromium E2E passed**, including 10 opt-in normal-runtime cases. TypeScript/build/lint and independent Provider/Security/actual-runtime Reviewer gates PASS. See `FULL_SYSTEM_AUDIT.md` and node R1 at the end of `current_task_graph.md`. Source limits remain explicit; this is local operation, not deployment approval. **No Phase12.**
 
 ## NEXT ACTION
 
-If the verified repair is not yet published, finish only selective source/test/docs commit and normal push after the final handoff review. Otherwise **HOLD: no Phase 12 or further phase is authorized**. Preserve the original database, generated-file churn and unrelated user work. This is local website verification, not deployment approval.
+Publish only the focused R1 source/test/docs changes if not yet committed/pushed, then **HOLD: no Phase12 or further phase is authorized**. Leave the verified normal stack running for the user's retest unless explicitly asked to stop. Preserve existing database records, generated-file churn and unrelated work; database ingestion/runtime mutations are not source changes to commit.
 
 ### Local startup
 
-From the repository root, install `python3 -m pip install -e '.[web,dev]'` and run `LLM_ENABLED=false python3 -m backend.main` (loopback port 8000). In `frontend/`, use Node 22 (`.nvmrc`), install the lockfile with `npm ci`, then `npm run dev` (strict loopback port 3000). Real mode never silently falls back to fixtures; missing credentials/providers produce explicit unavailable states. Set credentials only in the backend environment; never expose them in the frontend.
+Use Node22 (`frontend/.nvmrc`) and a Python interpreter with website dependencies installed: from root, `python3 -m pip install -e '.[web,dev]'`; install frontend dependencies with `npm --prefix frontend ci` if needed. Then the **single canonical normal startup command**, from repository root, is:
 
-Verification used Python 3.10.12 and the existing temporary Node 20.17.0 installation; that Node version is below the declared >=20.19 engine. Node 22 is the recommended startup environment, not an additional claimed test run. Verification servers were stopped at the pause; start them explicitly when needed. Tests and browser mutations used disposable databases, not the operator's original database.
+```bash
+npm --prefix frontend run dev
+```
+
+This starts FastAPI on `127.0.0.1:8000`, waits for initialized JSON API/database health, and then starts strict-loopback Vite on `127.0.0.1:3000`. **Do not start a separate backend first.** Unknown occupied ports are refused, not silently reused or killed. Keep the command running; Ctrl+C stops only its owned backend/frontend children. Optional `PYTHON=/path/to/python` selects an interpreter with the required dependencies.
+
+Backend Settings automatically loads this repository's root `.env`, independent of the launch directory; manual secret exports are not required. Keep `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY` and `SEC_USER_AGENT` there/backend-side, never in `VITE_*` variables. The launcher forces local binding and `LLM_ENABLED=false`. Normal startup uses the intended project `data/events.db` unless an explicit database override is deliberately configured; it does not substitute a test database or demo mode. Real mode never silently falls back to fixtures. Browser `/api/v1/...` requests go through Vite to the normal backend; use `/api/v1/health/detailed` for proxied JSON health, not the SPA's `/health` path.
+
+R1 verification used Python3.10.12 and **Node22.23.3**. Normal-runtime browser tests used the intended original database and cleaned only their own uniquely named API-created records; existing watchlists/items/alerts were independently compared read-only with the pre-repair backup and preserved exactly. Other regression tests may use isolated fixtures, but they are not the normal-runtime acceptance evidence. The one-command normal stack remains running after R1; after a machine/session restart, start it explicitly using the command above.
 
 > Fresh coding-agent session: Read this file first, then PROJECT_STATUS.md, then the authoritative requirements/architecture/roadmap documents referenced below. Inspect the repository and Git history, run the tests, verify documented state against the code, and continue from NEXT ACTION. Do not rebuild completed phases.
 
@@ -231,7 +239,7 @@ RUN_LIVE_TESTS=1 python3 -m pytest -q   # live tests
 
 ## Current Known Limitations
 
-1. **Coverage is bounded, not exhaustive.** SEC/IR/Fed ingestion worked in disposable live verification; failed BLS/news requests remain explicit partial/provider-error states. IEX completed daily closes are not live consolidated quotes.
+1. **Coverage is bounded, not exhaustive.** R1 verified SEC/IR/Fed ingestion through the normal running stack and intended original database; earlier disposable verification is separate historical evidence. Failed BLS/news requests remain explicit partial/provider-error states. IEX completed daily closes are not live consolidated quotes.
 2. **BEA/Census and future earnings-calendar website coverage are unavailable.** No fixture calendar or invented observations fill real mode. Other standalone provider capabilities are not implied by the bounded website refresh bridge.
 3. **Timestamp fidelity is conservative.** Date-only calendar events retain dates without invented instants; unsupported date-only/timezone-unknown feed entries are omitted. IR update/creation times are not original publication times. Exact source midnight remains exact.
 4. **Evidence/leadership coverage is limited.** Leadership is derived from ingested filings, not a complete officer roster. Ambiguous quote attribution is rejected; missing evidence remains unknown. Scenario probabilities are uncalibrated/null.

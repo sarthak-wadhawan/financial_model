@@ -195,10 +195,18 @@ class WebsiteDataAdapter:
     def overview(self):
         price = self.price(self.config.market.benchmark)
         now = datetime.now(timezone.utc).isoformat()
+        indices = [dict(symbol=self.config.market.benchmark, **price)]
+        for symbol, name in [("VIX", "Volatility index"), ("DXY", "US dollar index"), ("10Y", "US Treasury 10-year yield")]:
+            indices.append(dict(
+                symbol=symbol, price=None, change=None, change_pct=None, volume=None,
+                status="unsupported", reason=f"{name} is not supported by the connected stock daily-bars provider; no proxy instrument is substituted",
+                mode=self.mode, source=None, source_url=None, retrieved_at=None,
+                market_timestamp=None, price_kind=None,
+            ))
         return dict(timestamp=now, snapshot_time=price["retrieved_at"], market_status="unknown", symbols_tracked=len(self.symbols),
                     market_data_status=price["status"], quant_scanner_status=self._scan_status, reason=price["reason"],
                     mode=self.mode, source=self.source, source_url=self.source_url,
-                    indices=[dict(symbol=self.config.market.benchmark, **price)] if price["price"] is not None else [],
+                    indices=indices,
                     top_gainers=[], top_losers=[], most_active=[])
 
     def close(self):

@@ -305,13 +305,16 @@ export interface MarketOverviewResponse {
   symbols_tracked: number
   indices: Array<{
     symbol: string
-    price: number
-    change: number
-    change_pct: number
-    market_timestamp: string
-    retrieved_at: string
-    source: string
-    price_kind: string
+    status?: string
+    reason?: string | null
+    price: number | null
+    change: number | null
+    change_pct: number | null
+    market_timestamp: string | null
+    retrieved_at: string | null
+    source: string | null
+    source_url?: string | null
+    price_kind: string | null
   }>
   top_gainers: Array<{
     symbol: string

@@ -59,6 +59,32 @@ describe('LandingPage actual dashboard', () => {
     expect(within(company).queryByText('Not a company event')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Just released — last 7 days' })).toBeInTheDocument()
   })
+  it('shows independent unsupported instrument cards without hiding available SPY', async () => {
+    vi.mocked(api.getMarketOverview).mockResolvedValue({ ...market, indices: [
+      { ...market.indices[0], status: 'available' },
+      ...['VIX', 'DXY', '10Y'].map(symbol => ({ symbol, status: 'unsupported', reason: `${symbol} is not supported; no proxy instrument is substituted`, price: null, change: null, change_pct: null, market_timestamp: null, retrieved_at: null, source: null, price_kind: null })),
+    ] })
+    mount()
+    expect(await screen.findByText('600.00')).toBeInTheDocument()
+    expect(within(screen.getByRole('group', { name: 'SPY instrument' })).getByText('Status: available')).toBeInTheDocument()
+    for (const symbol of ['VIX', 'DXY', '10Y']) {
+      const card = within(screen.getByRole('group', { name: `${symbol} instrument` }))
+      expect(card.getByText('Status: unsupported')).toBeInTheDocument()
+      expect(card.getByText(`${symbol} is not supported; no proxy instrument is substituted`)).toBeInTheDocument()
+      expect(card.getByText(/Source: Unavailable/)).toBeInTheDocument()
+      expect(card.queryByText('600.00')).not.toBeInTheDocument()
+    }
+  })
+  it('renders a failed SPY instrument as provider_error rather than dropping its card', async () => {
+    vi.mocked(api.getMarketOverview).mockResolvedValue({ ...market, market_data_status: 'provider_error', indices: [
+      { ...market.indices[0], status: 'provider_error', reason: 'Market provider request failed', price: null, change: null, change_pct: null, market_timestamp: null },
+    ] })
+    mount()
+    const card = within(await screen.findByRole('group', { name: 'SPY instrument' }))
+    expect(card.getByText('Status: provider_error')).toBeInTheDocument()
+    expect(card.getByText('Market provider request failed')).toBeInTheDocument()
+    expect(card.queryByText('600.00')).not.toBeInTheDocument()
+  })
   it('displays API candidate rank and component values without recalculating', async () => {
     vi.mocked(api.getQuantScannerTop).mockResolvedValue([{ symbol: 'AAPL', rank: 7, quant_score: 85, momentum_score: 0, trend_score: 90, liquidity_score: 80, volume_score: 70, volatility_quality_score: 60, price: 100, avg_dollar_volume_20d: 1e6, components: {}, calculated_at: '2026-10-14', market_timestamp: '2026-10-13', source: 'test-fixture', mode: 'demo' }])
     mount()

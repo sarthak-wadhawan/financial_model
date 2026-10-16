@@ -1,6 +1,16 @@
 # Project Status
 
-## 2026-10-16 — Current: Phase 1–11 Local Website Repair Verified
+## Current — R1 normal-runtime integration verified (2026-10-16)
+
+The prior functional-completion claim at `c9b77fbd` was withdrawn. Actual user testing exposed Vite3000 serving without a FastAPI8000 listener: local watchlists failed through the proxy as500 while direct8000 refused connections. R1 repairs normal startup rather than blaming providers: **`npm --prefix frontend run dev`** now owns both servers, gates Vite on initialized JSON backend/database health, tolerates transient probe failures and refuses unknown occupied ports. Backend Settings loads root `.env` without manual credential exports.
+
+Verified after an owned clean process restart: 22 representative direct/proxy requests returned200; API-created watchlist/AAPL/notes and alert survived restart in the intended original database, then only those records were API-deleted. Existing 8 watchlists, 4 items and 2 alerts were preserved exactly in read-only backup comparison. Actual non-intercepted browser workflows and independent desktop/mobile review passed; real scanner20 results, SPY data and official Fed/SEC/IR ingestion were observed. BLS quota/news upstream failures remain isolated; VIX/DXY/10Y explicitly unsupported, not fake values.
+
+Final R1 regression: **532 backend passed / 35 skipped / 0 failed; 163 frontend unit passed / 0 failed; 15 startup tests passed / 0 failed; 122 Chromium E2E passed / 0 failed**, including 10 normal-database cases. TypeScript/build/lint PASS. Independent ProviderAuditor, SecurityReviewer and actual-runtime Reviewer PASS. Standalone/targeted repeats are not added to these totals. Python3.10.12 / Node22.23.3.
+
+See `FULL_SYSTEM_AUDIT.md` and R1 in `current_task_graph.md` for evidence/limits. Finish selective publication if outstanding, then HOLD. Leave the actual normal stack running for user retest. **No Phase12 or deployment approval.** Entries below describe superseded historical verification.
+
+## Earlier 2026-10-16 Claim — Superseded by R1 Runtime Evidence
 
 Resumed the saved A–P DAG at node K; all 48 source/test/docs checkpoint files were unchanged. **Final full backend regression: 492 passed / 35 skipped / 0 failed**, 386.02 seconds, on the final feed-precision implementation. Frontend source was unchanged, so existing **161 unit passed / 0 failed**, **112 Chromium desktop/mobile E2E passed / 0 failed**, TypeScript/build/lint PASS evidence was reused. Independent Provider Auditor, Security Reviewer and rendered-site Reviewer remain PASS. Overlapping targeted runs are not added to these totals.
 
