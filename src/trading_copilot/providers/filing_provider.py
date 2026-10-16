@@ -15,6 +15,29 @@ from trading_copilot.providers.sec_http import SECTransport
 from trading_copilot.providers.sec_parsers import filing_text, leadership, parse_form4, sections
 
 SUPPORTED_FORMS = {"8-K", "10-Q", "10-K", "4"}
+CATEGORY_FORMS = {"ownership": {"4"}, "reports": {"10-K", "10-Q"},
+                  "companyevents": {"8-K"}}
+
+
+def _category(form: str) -> str:
+    return next(name for name, forms in CATEGORY_FORMS.items()
+                if form.removesuffix("/A") in forms)
+
+
+def _select_rows(rows: list[dict], limit: int, quotas: dict[str, int] | None) -> list[dict]:
+    # Quotas reserve slots, not extra requests or hard category caps. Unused slots
+    # go to the newest remaining filings; return the same chronological ordering.
+    if quotas is None:
+        return rows[:limit]
+    reserved = set()
+    for category, quota in quotas.items():
+        reserved.update(row["accessionNumber"] for row in
+                        [r for r in rows if _category(r["form"]) == category][:quota])
+    for row in rows:
+        if len(reserved) >= limit:
+            break
+        reserved.add(row["accessionNumber"])
+    return [row for row in rows if row["accessionNumber"] in reserved]
 
 
 def _json(value: Any) -> str:
@@ -48,6 +71,9 @@ class SECFilingProvider:
         self.transport = transport or SECTransport(user_agent)
         self.cik_map = cik_map or SECCIKMap(self.cache_dir / "cik", transport=self.transport)
         self.errors: list[dict[str, str]] = []
+        # Missing symbols have never been checked by this provider instance.
+        # Entries describe only the most recent requested window, not world absence.
+        self.coverage: dict[str, dict[str, Any]] = {}
 
     def _error(self, symbol: str, stage: str, source_id: str, exc: Exception):
         # Never persist request headers/credentials in error diagnostics.
@@ -170,9 +196,23 @@ class SECFilingProvider:
 
     def get_filings(self, symbols: list[str], lookback_days: int = 90,
                     max_per_symbol: int = 100, *, from_date: date | None = None,
-                    to_date: date | None = None) -> dict[str, list[SourceDocument]]:
+                    to_date: date | None = None,
+                    category_quotas: dict[str, int] | None = None) -> dict[str, list[SourceDocument]]:
+        """Fetch bounded evidence, optionally reserving slots per category.
+
+        ``category_quotas`` uses ownership/reports/companyevents; nonnegative integer
+        reservations must total at most max_per_symbol. Remaining slots use normal
+        newest-first selection. Empty means no supported filings returned in this
+        checked window, never that a company has no filings or officers.
+        """
         if lookback_days < 0 or max_per_symbol < 1:
             raise ValueError("Invalid SEC lookback/limit")
+        if category_quotas is not None:
+            if (not isinstance(category_quotas, dict)
+                    or any(name not in CATEGORY_FORMS for name in category_quotas)
+                    or any(type(quota) is not int or quota < 0 for quota in category_quotas.values())
+                    or sum(category_quotas.values()) > max_per_symbol):
+                raise ValueError("Invalid SEC category quotas")
         end = to_date or datetime.now(timezone.utc).date()
         start = from_date or end - timedelta(days=lookback_days)
         if start > end:
@@ -181,19 +221,66 @@ class SECFilingProvider:
         result = {}
         for symbol in dict.fromkeys(s.upper() for s in symbols):
             result[symbol] = []
+            coverage = {"from_date": start.isoformat(), "to_date": end.isoformat(),
+                        "checked_at": None, "source_checked": False,
+                        "submissions_attempted": False, "discovered_eligible": 0,
+                        "selected": 0, "successful_documents": 0,
+                        "error_stage_counts": {}, "status": "not_refreshed",
+                        "scope": "supported_filings_in_requested_window",
+                        "categories": {name: {"discovered_eligible": 0, "selected": 0,
+                                              "successful_documents": 0,
+                                              "error_stage_counts": {}, "status": "not_refreshed"}
+                                       for name in CATEGORY_FORMS}}
+            self.coverage[symbol] = coverage
+            error_start = len(self.errors)
+            stage = "cik"
             try:
                 cik = self.cik_map.get_cik(symbol)
                 if cik is None or not re.fullmatch(r"\d{10}", cik):
                     raise ValueError("No valid SEC CIK for symbol")
+                stage = "submissions"
+                coverage["submissions_attempted"] = True
                 rows = self._filing_rows(symbol, cik, start, end)
             except Exception as exc:
                 self._error(symbol, "submissions", symbol, exc)
+                coverage["error_stage_counts"][stage] = 1
+                coverage["status"] = "provider_error"
+                for category in coverage["categories"].values():
+                    category["status"] = "provider_error"
+                    category["error_stage_counts"][stage] = 1
                 continue
-            for row in rows[:max_per_symbol]:
+            coverage["source_checked"] = True
+            coverage["checked_at"] = datetime.now(timezone.utc).isoformat()
+            coverage["discovered_eligible"] = len(rows)
+            selected = _select_rows(rows, max_per_symbol, category_quotas)
+            coverage["selected"] = len(selected)
+            for row in rows:
+                coverage["categories"][_category(row["form"])]["discovered_eligible"] += 1
+            for row in selected:
+                category = coverage["categories"][_category(row["form"])]
+                category["selected"] += 1
                 try:
                     result[symbol].append(self._document(symbol, cik, row))
+                    category["successful_documents"] += 1
                 except Exception as exc:
                     self._error(symbol, "document", str(row.get("accessionNumber")), exc)
+                    category["error_stage_counts"]["document"] = category["error_stage_counts"].get("document", 0) + 1
+            for error in self.errors[error_start:]:
+                stage = error["stage"]
+                coverage["error_stage_counts"][stage] = coverage["error_stage_counts"].get(stage, 0) + 1
+                if stage != "document":
+                    # Incomplete discovery can affect every category; do not call
+                    # undiscovered categories empty after a shard/row failure.
+                    for category in coverage["categories"].values():
+                        category["error_stage_counts"][stage] = category["error_stage_counts"].get(stage, 0) + 1
+            coverage["successful_documents"] = len(result[symbol])
+            for entry in [coverage, *coverage["categories"].values()]:
+                if entry["error_stage_counts"]:
+                    entry["status"] = "partial" if entry["successful_documents"] else "provider_error"
+                elif entry["selected"] < entry["discovered_eligible"]:
+                    entry["status"] = "partial"
+                else:
+                    entry["status"] = "available" if entry["successful_documents"] else "empty"
         return result
 
     def _events(self, document: SourceDocument) -> list[MarketEvent]:
@@ -228,11 +315,13 @@ class SECFilingProvider:
         return result
 
     def refresh(self, symbols: list[str], lookback_days: int = 90, max_per_symbol: int = 100,
-                *, from_date: date | None = None, to_date: date | None = None) -> dict[str, int]:
+                *, from_date: date | None = None, to_date: date | None = None,
+                category_quotas: dict[str, int] | None = None) -> dict[str, int]:
         if self.event_store is None:
             raise ValueError("EventStore required for SEC refresh")
         documents = self.get_filings(symbols, lookback_days, max_per_symbol,
-                                     from_date=from_date, to_date=to_date)
+                                     from_date=from_date, to_date=to_date,
+                                     category_quotas=category_quotas)
         counts = {"NEW": 0, "CHANGED": 0, "UNCHANGED": 0, "ERROR": len(self.errors)}
         for symbol, filings in documents.items():
             for document in filings:
@@ -242,6 +331,10 @@ class SECFilingProvider:
                 except Exception as exc:
                     self._error(symbol, "upsert", document.source_id, exc)
                     counts["ERROR"] += 1
+                    coverage = self.coverage[symbol]
+                    for entry in [coverage, coverage["categories"][_category(document.metadata["form"])]]:
+                        entry["error_stage_counts"]["upsert"] = entry["error_stage_counts"].get("upsert", 0) + 1
+                        entry["status"] = "partial"
         return counts
 
     def get_current_leadership(self, symbol: str, as_of: date | None = None) -> dict:
