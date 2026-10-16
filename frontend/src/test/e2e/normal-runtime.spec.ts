@@ -195,7 +195,14 @@ test('normal runtime Dashboard/Scanner/Macro/AAPL response and rendered data', a
     expect(response.headers()['content-type']).toContain('application/json')
     expect([200, 503]).toContain(response.status())
     const data = await response.json()
-    await expect(page.getByRole('heading', { level: 1 }).first()).toContainText(flow.heading)
+    if (flow.path === '/stocks/AAPL') {
+      const detail = await browserGet(page, 'stocks/AAPL')
+      expect(detail.symbol).toBe('AAPL')
+      expect(detail.name).toEqual(expect.any(String))
+      expect(detail.name.length).toBeGreaterThan(0)
+      await expect(page.getByRole('heading', { level: 1, name: detail.name, exact: true })).toBeVisible()
+      await expect(page.locator('.stock-exchange')).toContainText(detail.symbol)
+    } else await expect(page.getByRole('heading', { level: 1 }).first()).toContainText(flow.heading)
     if (response.status() === 503) {
       expect(data.detail).toBeTruthy()
       await expect(page.locator('body')).toContainText(/could not load|unavailable/i)

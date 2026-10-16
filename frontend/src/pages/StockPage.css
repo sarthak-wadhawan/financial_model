@@ -9,3 +9,13 @@
 .stock-page .stock-diagnostics summary { cursor: pointer; }
 .stock-page .stock-diagnostics p { overflow-wrap: anywhere; }
 .stock-page .stock-content > .price-history { margin-bottom: 1.5rem; }
+.stock-page .stock-tabs { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; min-width: 0; padding: 4px; scroll-padding-inline: 4px; }
+.stock-page .stock-tabs .tab { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 640px) {
+  .stock-page .stock-header { gap: .5rem; margin-bottom: .75rem; }
+  .stock-page .stock-header-main { gap: .5rem; }
+  .stock-page .stock-header h1 { margin-block: 0; font-size: 1.5rem; }
+  .stock-page .stock-header > p { margin-block: .25rem; }
+  .stock-page .stock-header .stock-diagnostics { margin-block: .25rem; }
+  .stock-page .stock-tabs { margin-bottom: 0; }
+}

@@ -713,3 +713,9 @@ Source through `e6371260` reviewed. Provider/focused Reviewer PASS:103 targeted 
 Owned canonical stack gracefully restarted after source freeze. Independent ProviderAuditor then verified20 direct/proxied detail/search GETs for all5 targets: officialSEC names/exchanges, consistent snapshot/retrieval/per-field evidence and independently sourced prices. Parent real Chromium verified all5 official company headings after restart with zero page errors. Evidence `/tmp/opencode/ux-identity-restarted-runtime.json`, `/tmp/opencode/ux-identity-final-browser.json`. **UX2a PASS only; full UX2 remains open** for schedules, bars metadata, category coverage and richer supported profile facts. Sector/description are not invented. Normal stack remains running.
 
 Chart polish BUILD complete (38 targeted tests/TS/scoped lint PASS); actual-canvas Reviewer narrow recheck active. It is not yet an accepted chart leaf. Continue original graph; no main merge or Phase12.
+
+### UX3 chart leaf — verified PASS (not full UX3)
+
+Reviewer `ses_eb8ff6435ffe0RH53KNvHUC0qe` recheck PASS: technical/provider details collapsed with actual safeAlpaca link; coordinatedgreen/neutralpalette; touchguidance and keyboardfallback; horizontal mobiletabs/End reveal;320/390/1440 light/dark zero pageerrors/documentoverflow. Hover/touch update sessiondate+close, independent headerprice remains stable; prior5-symbol/all-range evidence retained.38 targeted chart/StockPage tests PASS, TS/scoped lint PASS. Mobilecanvas top improved to~807px320/~700px390; further overallstockinformation hierarchy remains part of broader UX work, not concealed by this leaf acceptance. E2E identity headings now assert actual returned companyname plus ticker, not stale ticker-onlyh1.
+
+UX2a acceptance pushed/confirmed at `77393ab6`. Publish six chartpolish source/test paths plus checkpoint/docs, then continue existing UX2c and UX2b with disjoint file ownership. FullUX2 and fullUX3 remain open; no main merge/Phase12.

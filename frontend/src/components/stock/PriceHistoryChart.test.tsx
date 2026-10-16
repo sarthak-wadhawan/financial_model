@@ -76,6 +76,34 @@ describe('PriceHistoryChart offline mocked chart lifecycle', () => {
       await waitFor(() => expect(api.getBars).toHaveBeenLastCalledWith('AAPL', '1Day', start, '2026-10-16', 5000))
     }
   })
+  it('keeps essentials and touch/keyboard instructions visible while disclosing actual provider provenance', async () => {
+    vi.mocked(api.getBars).mockResolvedValueOnce({ ...data(), source_url: 'https://data.alpaca.markets/v2/stocks/AAPL/bars', retrieved_at: '2026-10-16T00:00:00Z' })
+    mount()
+    await screen.findByLabelText('Inspected daily close')
+    const summary = screen.getByText('Source and chart details')
+    const details = summary.closest('details')!
+    expect(details).not.toHaveAttribute('open')
+    expect(screen.getByText(/IEX · Unadjusted daily closes · Not a live quote/)).toBeVisible()
+    expect(screen.getByText(/1D unavailable: no intraday data. ALL unavailable: lifetime coverage unverified/)).toBeVisible()
+    expect(screen.getByText(/On touch screens, press and hold, then drag to inspect/)).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Inspect session' })).toBeVisible()
+    expect(screen.getByText('Price history provider source')).not.toBeVisible()
+    fireEvent.click(summary)
+    expect(details).toHaveAttribute('open')
+    expect(screen.getByRole('link', { name: 'Price history provider source' })).toHaveAttribute('href', 'https://data.alpaca.markets/v2/stocks/AAPL/bars')
+    expect(screen.getByText(/Retrieved: 2026-10-16T00:00:00Z/)).toBeVisible()
+    expect(screen.getByText(/Returned bounds do not establish complete coverage/)).toBeVisible()
+    expect(screen.getByText(/Session dates are labels/)).toBeVisible()
+  })
+  it.each(['javascript:alert(1)', 'data:text/html,unsafe', null])('does not link unsafe or missing provider URLs: %s', async source_url => {
+    vi.mocked(api.getBars).mockResolvedValueOnce({ ...data(), source_url })
+    mount()
+    await screen.findByLabelText('Inspected daily close')
+    fireEvent.click(screen.getByText('Source and chart details'))
+    expect(screen.queryByRole('link', { name: 'Price history provider source' })).not.toBeInTheDocument()
+    expect(screen.getByText('Price history provider source — link unavailable')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'https://www.tradingview.com/' })).toBeVisible()
+  })
   it('shows loading, empty and retry without manufacturing points', async () => {
     let resolve!: (value: BarData) => void
     vi.mocked(api.getBars).mockReturnValueOnce(new Promise(done => { resolve = done }))
@@ -143,7 +171,7 @@ describe('PriceHistoryChart offline mocked chart lifecycle', () => {
     expect(mocks.apply).toHaveBeenLastCalledWith({ width: 640 })
     mocks.theme = 'dark'
     view.refresh()
-    expect(mocks.apply).toHaveBeenLastCalledWith(expect.objectContaining({ layout: expect.objectContaining({ background: { type: 'solid', color: '#111827' } }) }))
+    expect(mocks.apply).toHaveBeenLastCalledWith(expect.objectContaining({ layout: expect.objectContaining({ background: { type: 'solid', color: '#171D19' } }) }))
     view.unmount()
     expect(mocks.unsubscribe).toHaveBeenCalledWith(mocks.subscribe.mock.calls[0][0])
     expect(mocks.unclick).toHaveBeenCalledWith(mocks.click.mock.calls[0][0])

@@ -7,7 +7,14 @@ test.describe('Stock Page', () => {
   })
 
   test('loads successfully with correct title', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'AAPL', exact: true })).toBeVisible()
+    const response = await page.request.get('/api/v1/stocks/AAPL')
+    expect(response.ok()).toBeTruthy()
+    const detail = await response.json()
+    expect(detail.symbol).toBe('AAPL')
+    expect(detail.name).toEqual(expect.any(String))
+    expect(detail.name.length).toBeGreaterThan(0)
+    await expect(page.getByRole('heading', { level: 1, name: detail.name, exact: true })).toBeVisible()
+    await expect(page.locator('.stock-exchange')).toContainText(detail.symbol)
     // In test env, exchange may be "Exchange unavailable"
     await expect(page.getByText(/NASDAQ|Exchange unavailable/i)).toBeVisible()
   })
