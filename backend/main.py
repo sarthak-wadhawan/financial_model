@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from backend.website_data import WebsiteDataAdapter
 from backend.website_sources import WebsiteSourceAdapter
+from backend.earnings_projection import project_next_earnings, EARNINGS_QUERY_LIMIT
 
 from trading_copilot.config import Config, load_config, load_settings
 from trading_copilot.events.store import EventStore
@@ -310,6 +311,12 @@ def get_stock_detail(symbol: str) -> dict:
     price = market_adapter.price(symbol)
     quant = market_adapter.quant(symbol)
     metadata = market_adapter.identity(symbol)
+    earnings_projection = project_next_earnings(
+        symbol,
+        event_store.events_for_symbol(
+            symbol, event_types=[EventType.EARNINGS], limit=EARNINGS_QUERY_LIMIT,
+        ),
+    )
     
     # Get price data
     # Get quant scores
@@ -318,6 +325,7 @@ def get_stock_detail(symbol: str) -> dict:
         "symbol": symbol,
         "name": metadata.get("name"), "exchange": metadata.get("exchange"),
         "identity": metadata,
+        **earnings_projection,
         "price": price["price"], "change": price["change"], "change_pct": price["change_pct"], "volume": price["volume"],
         "market_cap": None, "pe_ratio": None, "dividend_yield": None,
         "interpretation": interpretation.model_dump() if interpretation else None,
