@@ -644,7 +644,10 @@ def get_bars(
     end: Optional[date] = Query(None),
     limit: int = Query(500, ge=1, le=5000),
 ):
-    """Get price bars for charting."""
+    """Daily bars: inclusive dates, maximum 10 calendar years, limit is a tail cap.
+
+    Current/future sessions are excluded; requested and effective bounds are returned.
+    """
     if timeframe != "1Day":
         raise HTTPException(400, "Only daily bars are supported by the current provider")
     return market_adapter.bars(validate_symbol(symbol), start, end, limit)

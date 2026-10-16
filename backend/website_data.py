@@ -255,18 +255,48 @@ class WebsiteDataAdapter:
 
     def bars(self, symbol, start=None, end=None, limit=500):
         now = datetime.now(timezone.utc)
+        if not 1 <= limit <= 5000:
+            raise ValueError("limit must be between 1 and 5000 (a returned-row tail cap)")
         start = start or (now - timedelta(days=max(400, self.config.market.history_days))).date()
-        end = min(end or now.date(), now.date())
+        end = end or now.date()
         if start > end:
             raise ValueError("start must not be after end")
-        key = (symbol, start, end)
+        # Calendar anniversaries, not a fixed 3650-day approximation (leap years).
+        try:
+            earliest_start = end.replace(year=max(1, end.year - 10))
+        except ValueError:  # February 29 -> February 28 in the boundary year.
+            earliest_start = end.replace(year=end.year - 10, day=28)
+        if start < earliest_start:
+            raise ValueError("Requested range must not exceed 10 calendar years")
+        requested_end = end
+        end = min(end, now.date() - timedelta(days=1))
+        # Preserve exact requested identity even when future ends share an effective bound.
+        key = (symbol, start, requested_end, end)
+
+        def response(result):
+            rows = result["bars"][-limit:]
+            return {**result, "bars": rows,
+                    "available_start": rows[0]["t"][:10] if rows else None,
+                    "available_end": rows[-1]["t"][:10] if rows else None,
+                    "returned_count": len(rows), "truncated": len(result["bars"]) > limit,
+                    # Nonempty data does not prove absence of missing middle sessions.
+                    "coverage_complete": False if len(result["bars"]) > limit else None}
+
         with self._lock:
             cached = self._bar_cache.get(key)
             if cached and (now - cached[0]).total_seconds() < 300:
-                return {**cached[1], "bars": cached[1]["bars"][-limit:]}
-            result = dict(symbol=symbol, timeframe="1Day", bars=[], **self._meta("unavailable", self.reason))
-            if self.provider is None:
-                return result
+                return response(cached[1])
+            result = dict(symbol=symbol, timeframe="1Day", bars=[],
+                          requested_start=start.isoformat(), requested_end=requested_end.isoformat(),
+                          effective_end=end.isoformat(), max_request_span_calendar_years=10,
+                          range_policy="inclusive dates; current and future sessions excluded; limit is a tail cap",
+                          feed="iex" if self.mode == "real" else None, adjustment="raw",
+                          timestamp_basis="daily_session_label", supported_timeframes=["1Day"],
+                          **self._meta("unavailable", self.reason))
+            if self.provider is None or start > end:
+                if start > end:
+                    result.update(self._meta("empty", "Requested range contains no eligible completed-session dates"))
+                return response(result)
             try:
                 # Use get_daily_bars_with_status if available to get per-symbol status
                 if hasattr(self.provider, "get_daily_bars_with_status"):
@@ -293,7 +323,8 @@ class WebsiteDataAdapter:
                     status = "empty"
                     reason = "No bars returned; symbol coverage or provider failure unknown"
                 else:
-                    status = "stale" if timestamp and now - timestamp > timedelta(days=5) else "available"
+                    # Only latest/current requests carry wall-clock price freshness.
+                    status = "stale" if requested_end >= now.date() - timedelta(days=1) and timestamp and now - timestamp > timedelta(days=5) else "available"
                     reason = None
 
                 provenance = getattr(self.provider, "last_retrieval_metadata", {}).get(symbol, {})
@@ -303,7 +334,7 @@ class WebsiteDataAdapter:
                 # Never serialize exception text: upstream requests can contain credentials.
                 result.update(self._meta("provider_error", "Market provider request failed", now.isoformat()))
             self._bar_cache[key] = (now, result)
-            return {**result, "bars": result["bars"][-limit:]}
+            return response(result)
 
     def search(self, q, limit=10):
         q = q.strip().upper()
@@ -326,7 +357,9 @@ class WebsiteDataAdapter:
         return dict(price=price, change=price-previous if previous is not None else None,
                     change_pct=(price/previous-1)*100 if previous else None,
                     volume=bars[-1]["v"] if bars else None,
-                    **{k: v for k, v in result.items() if k not in {"bars", "symbol", "timeframe"}}, price_kind="completed_daily_close")
+                    **{k: v for k, v in result.items() if k not in {"bars", "symbol", "timeframe"}},
+                    session_date=bars[-1]["t"][:10] if bars else None,
+                    is_live=False, price_kind="completed_daily_close")
 
     def scan(self, n=20):
         with self._lock:
