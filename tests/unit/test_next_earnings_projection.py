@@ -255,3 +255,98 @@ def test_stock_detail_additions_query_and_serialization_preserve_aliases(monkeyp
     assert response["events"] == jsonable_encoder([e.model_dump()])
     assert response["next_earnings"]["event_date"] == "2026-10-27"
     assert response["earnings_coverage"]["status"] == "not_refreshed"
+
+
+@pytest.mark.parametrize("earlier", ["4:2026", "fourth:2026"])
+@pytest.mark.parametrize("later", ["1:2027", "first:2027"])
+def test_numeric_distinct_quarters_select_earliest(earlier, later):
+    a = announcement(period=earlier)
+    b = announcement("2027-01-27", period=later, event_id="later")
+    for events in ([a, b], [b, a]):
+        data = project(events)["next_earnings"]
+        assert data["event_ids"] == ["official-1"]
+        assert data["fiscal_period"] == "fourth:2026"
+
+
+@pytest.mark.parametrize("number,word", [("1", "first"), ("2", "second"), ("3", "third"), ("4", "fourth")])
+def test_numeric_and_spelled_quarters_are_equivalent(number, word):
+    a = announcement(period=f"{number}:2026")
+    b = announcement(period=f"{word}:2026", event_id="other")
+    before = [deepcopy(e.model_dump()) for e in (a, b)]
+    data = project([a, b])["next_earnings"]
+    assert data["fiscal_period"] == f"{word}:2026"
+    assert data["event_ids"] == ["official-1", "other"]
+    assert [e.model_dump() for e in (a, b)] == before
+    b = announcement("2026-10-28", period=f"{word}:2026", event_id="other")
+    for events in ([a, b], [b, a]):
+        result = project(events)
+        assert result["next_earnings"] is None
+        assert result["earnings_coverage"]["confirmation_status"] == "conflicting_announcements"
+
+
+@pytest.mark.parametrize("period", [
+    None, "unknown", "", [], {}, False, 42, "0:2026", "5:2026", "01:2026",
+    "fourth:0000", "4:0000", "full_year:0000", "first:-001", "1:10000", "1:999",
+    "first:2026:extra", "Q4:2026", "fourth:2026\n", " fourth:2026", "FOURTH:2026",
+    "fourth:２０２６", "fourth:2026.0",
+])
+def test_unknown_or_malformed_period_not_invented_or_assumed_distinct(period):
+    a = announcement(period=period)
+    assert project([a])["next_earnings"]["fiscal_period"] is None
+    b = announcement("2027-01-27", period="first:2027", event_id="later")
+    for events in ([a, b], [b, a]):
+        result = project(events)
+        assert result["next_earnings"] is None
+        assert result["earnings_coverage"]["confirmation_status"] == "conflicting_announcements"
+
+
+@pytest.mark.parametrize("period", ["full_year:2026", "first:0001", "4:9999"])
+def test_valid_period_year_bounds_and_full_year(period):
+    data = project([announcement(period=period)])["next_earnings"]
+    assert data["fiscal_period"] == ("fourth:9999" if period == "4:9999" else period)
+
+
+def with_evidence_text(event, text):
+    event.description = text
+    event.metadata["evidence_span"].update(text=text, end=len(text))
+    event.metadata["source_content_hash"] = hashlib.sha256(text.encode()).hexdigest()
+    return event
+
+
+@pytest.mark.parametrize("session,phrase", [
+    ("amc", "after market close"), ("amc", "after market closes"),
+    ("amc", "after market closing"), ("amc", "after the market closing"),
+    ("amc", "AFTER THE MARKET CLOSES"), ("amc", "after close of the market"),
+    ("bmo", "before market open"), ("bmo", "before market opens"),
+    ("bmo", "before market opening"), ("bmo", "before the market opening"),
+    ("bmo", "BEFORE THE MARKET OPENS"), ("bmo", "before opening of the market"),
+])
+def test_supported_release_session_wording_without_exact_time(session, phrase):
+    text = f"Visa will announce financial results on October 27, 2026, {phrase}."
+    e = with_evidence_text(announcement(session=session), text)
+    data = project([e])["next_earnings"]
+    assert data["session"] == session and data["scheduled_time_precision"] == "session"
+    assert data["scheduled_at"] is None and data["event_timezone"] is None
+    e.metadata["session"] = "bmo" if session == "amc" else "amc"
+    assert project([e])["next_earnings"] is None
+
+
+@pytest.mark.parametrize("session,phrase", [
+    ("amc", "after market closingbell"), ("bmo", "before market openingbell"),
+    ("amc", "after market closing and before market opening"),
+    ("bmo", "after market closing and before market opening"),
+    ("amc", "with a webcast after market closing at 5:00 p.m. ET"),
+    ("bmo", "with a webcast before market opening at 8:00 a.m. ET"),
+])
+def test_session_requires_unambiguous_release_evidence(session, phrase):
+    text = f"Visa will announce financial results on October 27, 2026, {phrase}."
+    assert project([with_evidence_text(announcement(session=session), text)])["next_earnings"] is None
+
+
+@pytest.mark.parametrize("session", ["unknown", "amc", "bmo"])
+def test_webcast_clock_never_becomes_release_clock(session):
+    e = announcement(session=session)
+    text = e.description + " A webcast begins at 5:00 p.m. ET."
+    data = project([with_evidence_text(e, text)])["next_earnings"]
+    assert data["session"] == session
+    assert data["scheduled_at"] is None and data["event_timezone"] is None

@@ -18,6 +18,17 @@ from trading_copilot.providers.ir_release_provider import IR_RSS_FEEDS
 EARNINGS_QUERY_LIMIT = 1000
 
 
+def _period(value: object) -> str | None:
+    """Canonicalize supported retained period labels without inferring a period."""
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"(first|second|third|fourth|[1-4]|full_year):([0-9]{4})", value)
+    if match is None or int(match[2]) == 0:
+        return None
+    quarter = {"1": "first", "2": "second", "3": "third", "4": "fourth"}.get(match[1], match[1])
+    return f"{quarter}:{match[2]}"
+
+
 def _official_origin(url: object) -> tuple[str, int] | None:
     if not isinstance(url, str) or any(c.isspace() for c in url) or "\\" in url:
         return None
@@ -98,16 +109,16 @@ def _candidate(event: MarketEvent, symbol: str, now: datetime, feeds: Mapping[st
     if not ((precision == "date" and session == "unknown")
             or (precision == "session" and session in ("bmo", "amc"))):
         return None
-    if session == "amc" and not re.search(r"after (?:the )?(?:market close|close of (?:the )?market|market closes)", text, re.I):
-        return None
-    if session == "bmo" and not re.search(r"before (?:the )?(?:market open|opening of (?:the )?market|market opens)", text, re.I):
+    # A separate call/webcast cannot supply the release session (or its clock).
+    release_text = re.split(r"\b(?:call|conference|webcast)\b", text, maxsplit=1, flags=re.I)[0]
+    amc = bool(re.search(r"\bafter (?:the )?(?:market clos(?:e|es|ing)|close of (?:the )?market)\b", release_text, re.I))
+    bmo = bool(re.search(r"\bbefore (?:the )?(?:market open(?:s|ing)?|opening of (?:the )?market)\b", release_text, re.I))
+    if session != "unknown" and (amc == bmo or (session == "amc") != amc):
         return None
     # A date/session assertion must not smuggle in a synthesized midnight/clock.
     if event.scheduled_at is not None or event.released_at is not None or m.get("event_timezone") is not None:
         return None
-    period = m.get("fiscal_period")
-    if not isinstance(period, str) or not re.fullmatch(r"(?:first|second|third|fourth|full_year):\d{4}", period):
-        period = None
+    period = _period(m.get("fiscal_period"))
     return {
         "event_date": calendar_date.isoformat(), "session": session,
         "scheduled_time_precision": precision, "fiscal_period": period,
