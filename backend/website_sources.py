@@ -12,6 +12,7 @@ from trading_copilot.providers.earnings_intelligence import EarningsIntelligence
 from trading_copilot.providers.macro_calendar import MacroCalendarProvider
 from trading_copilot.providers.news_rss_provider import NewsRSSProvider
 from trading_copilot.providers.ir_release_provider import IRReleaseProvider
+from trading_copilot.providers.official_earnings_schedule import extract_official_schedule
 from trading_copilot.providers.sec_exhibit_provider import SECExhibitProvider
 from trading_copilot.providers.management_extractor import (
     ManagementExtractor, ATTRIBUTION_PATTERNS, QUOTE_PATTERNS, linked_quote_speaker,
@@ -71,6 +72,12 @@ class DatedRSSProvider(NewsRSSProvider):
 
 
 class DatedIRProvider(IRReleaseProvider):
+    schedule_mode = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.linked_body_budget = 4
+
     def _parse_entry(self, symbol, entry, from_date, to_date):
         # FeedParserDict.get/__getitem__ can alias absent updated_parsed to
         # published_parsed. Only underlying supplied keys establish provenance.
@@ -88,12 +95,27 @@ class DatedIRProvider(IRReleaseProvider):
         published = parsed
         if not from_date <= published.date() <= to_date:
             return None
-        # Phase 8's parser references an undefined feed_url; keep the bounded
-        # live parser here, reusing its feed fetch/HTML cleaning and source model.
+        # Keep the website's strict timestamp parser, reusing Phase 8 feed
+        # fetching/HTML cleaning and the existing source document model.
         content = entry.get("content")
         raw = content[0].get("value", "") if isinstance(content, list) and content else entry.get("summary", entry.get("description", ""))
+        raw_feed_content = raw
         body = self._clean_html(raw)
         link = entry.get("link", "")
+        title = entry.get("title", "").strip()
+        body_basis = "feed_content"
+        if self.schedule_mode and len(body.strip()) < 50 and re.search(r"earnings|financial results", title, re.I):
+            try:
+                if self.linked_body_budget <= 0:
+                    raise ValueError("Linked body request budget exhausted")
+                self.linked_body_budget -= 1
+                raw = self.fetch_linked_body(symbol, link)
+                body = self._clean_html(raw)
+                body_basis = "linked_official_body"
+            except Exception as exc:
+                self._error(symbol, "linked_body", link, exc)
+            if len(body.strip()) < 50:
+                body, body_basis = title, "feed_title_only"
         if not link.startswith(("https://", "http://")) or len(body.strip()) < 50:
             return None
         identity = str(entry.get("id") or link)
@@ -103,6 +125,7 @@ class DatedIRProvider(IRReleaseProvider):
             source_url=link, source_type=NewsSourceType.COMPANY_IR, provider_id="company_ir_rss",
             content_hash=hashlib.sha256(body.encode()).hexdigest(),
             metadata={"feed_url": self.feeds[symbol], "entry_id": identity,
+                       "raw_content": raw, "raw_feed_content": raw_feed_content, "body_basis": body_basis,
                       "timestamp_basis": basis, "publication_time_unknown": basis != "published_at",
                       **{key: value.isoformat() for key, value in timestamps.items() if key != "published_at"}})
 
@@ -171,7 +194,7 @@ class WebsiteSourceAdapter:
         self.state.update({p: {"status":"unavailable", "retrieved_at":None, "reason":reason} for p, reason in {
             "bea":"Existing BEA response parser is incomplete; no live observations available",
             "census":"Existing Census response parser is incomplete; no live observations available",
-            "earnings_calendar":"Existing calendar defaults to fixtures; no verified future earnings source configured"}.items()})
+            "earnings_calendar":"Partial official IR announcement coverage only; no comprehensive future calendar, estimates or inferred dates"}.items()})
 
     def _run(self, name, operation):
         try:
@@ -253,10 +276,27 @@ class WebsiteSourceAdapter:
         provider = (WebsiteSECExhibitProvider(user_agent=self.settings.sec_user_agent) if name == "sec_exhibits"
                     else DatedIRProvider(timeout=10))
         try:
+            if name == "ir_releases":
+                provider.schedule_mode = True
             documents = provider.fetch_company_releases(symbols,
-                from_date=(datetime.now(timezone.utc)-timedelta(days=45 if name == "sec_exhibits" else 7)).date(),
+                from_date=(datetime.now(timezone.utc)-timedelta(days=45 if name == "sec_exhibits" else 90)).date(),
                 to_date=datetime.now(timezone.utc).date())
-            counts = self._documents(documents, name, len(provider.errors))
+            today = datetime.now(timezone.utc).date()
+            schedules = []
+            retained = []
+            for document in documents:
+                schedule = extract_official_schedule(document, today) if name == "ir_releases" else None
+                if schedule:
+                    schedules.append(schedule)
+                # Broader schedule discovery must not broaden news semantics.
+                if name != "ir_releases" or schedule or document.published_at.date() >= today - timedelta(days=7):
+                    retained.append(document)
+            counts = self._documents(retained, name, len(provider.errors))
+            for event in schedules:
+                existing = self.store.get_event_by_source_id(event.source_id, EventType.EARNINGS)
+                if existing:
+                    event.metadata["_identity_key"] = existing.metadata["_identity_key"]
+                counts[self.store.upsert_event(event).value] += 1
             if name == "ir_releases" and any(s not in provider.feeds for s in symbols):
                 counts["UNAVAILABLE"] = sum(s not in provider.feeds for s in symbols)
             return counts
@@ -311,5 +351,15 @@ class WebsiteSourceAdapter:
             existing = self.store.get_event_by_source_id(document.document_id, EventType.NEWS)
             if existing:
                 event.metadata["_identity_key"] = existing.metadata["_identity_key"]
+                # The embedded document records its original observation; the
+                # event's top-level retrieved_at tracks this refresh. Otherwise
+                # a new nested observation clock fabricates a content revision.
+                prior = existing.metadata.get("document", {})
+                current = event.metadata["document"]
+                if (prior.get("retrieved_at") and
+                        {k: v for k, v in prior.items() if k != "retrieved_at"} ==
+                        {k: v for k, v in current.items() if k != "retrieved_at"}):
+                    event.metadata["document"]["retrieved_at"] = prior["retrieved_at"]
+                event.content_hash = event.compute_content_hash()
             counts[self.store.upsert_event(event).value] += 1
         return counts

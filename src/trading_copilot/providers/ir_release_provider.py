@@ -9,7 +9,10 @@ import logging
 import re
 from datetime import date, datetime, timezone
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
+import ipaddress
+import socket
+import time
 
 import feedparser
 import httpx
@@ -29,7 +32,7 @@ IR_RSS_FEEDS = {
     "NVDA": "https://investor.nvidia.com/rss/news-releases.xml",
     "TSLA": "https://ir.tesla.com/rss/news-releases.xml",
     "JPM": "https://www.jpmorganchase.com/content/dam/jpmorganchase/documents/investor-relations/press-releases.rss",
-    "V": "https://investor.visa.com/rss/news-releases.xml",
+    "V": "https://investor.visa.com/rss/PressRelease.aspx?LanguageId=1&CategoryWorkflowId=00000000-0000-0000-0000-000000000000&tags=",
     "MA": "https://investor.mastercard.com/rss/news-releases.xml",
     "UNH": "https://www.unitedhealthgroup.com/rss/news-releases.xml",
     "HD": "https://newsroom.homedepot.com/rss.xml",
@@ -63,7 +66,7 @@ IR_RSS_FEEDS = {
     "MDLZ": "https://www.mondelezinternational.com/rss.xml",
     "GILD": "https://investors.gilead.com/rss/news-releases.xml",
     "ADP": "https://investors.adp.com/rss/news-releases.xml",
-    "TMO": "https://www.thermofisher.com/rss.xml",
+    "TMO": "https://ir.thermofisher.com/rss/pressrelease.aspx",
     "ISRG": "https://investor.intuitive.com/rss/news-releases.xml",
     "REGN": "https://investor.regeneron.com/rss/news-releases.xml",
     "VRTX": "https://investor.vrtx.com/rss/news-releases.xml",
@@ -276,12 +279,42 @@ class IRReleaseProvider:
             provider_id="company_ir_rss",
             content_hash=content_hash,
             metadata={
-                "feed_url": feed_url,
+                "feed_url": self.feeds[symbol],
                 "entry_id": entry_id,
                 "tags": [tag.term for tag in entry.get("tags", [])] if hasattr(entry, "tags") else [],
             },
             dedup_key=dedup_key,
         )
+
+    def fetch_linked_body(self, symbol: str, link: str) -> str:
+        """Read one same-configured-origin page; never follow redirects or bypass denials.
+
+        Only fixed official feed hosts are eligible (custom feeds cannot widen this
+        allowlist). Bound decoded bytes and elapsed time as well as socket timeout.
+        """
+        configured = urlsplit(IR_RSS_FEEDS.get(symbol, ""))
+        target = urlsplit(link)
+        if (target.scheme != "https" or target.username or target.password or
+                target.port not in (None, 443) or not target.hostname or
+                target.hostname != configured.hostname or
+                urlsplit(self.feeds[symbol]).hostname != configured.hostname):
+            raise ValueError("Linked body must use the configured official HTTPS origin")
+        addresses = socket.getaddrinfo(target.hostname, 443, type=socket.SOCK_STREAM)
+        if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
+            raise ValueError("Non-public official origin resolution refused")
+        started = time.monotonic()
+        chunks, size = [], 0
+        with httpx.stream("GET", link, timeout=min(self.timeout, 10),
+                          follow_redirects=False, trust_env=False) as response:
+            response.raise_for_status()
+            if response.headers.get("content-type", "").split(";")[0] not in ("text/html", "text/plain", "application/xhtml+xml"):
+                raise ValueError("Unsupported linked body type")
+            for chunk in response.iter_bytes():
+                size += len(chunk)
+                if size > 512_000 or time.monotonic() - started > 10:
+                    raise ValueError("Linked body limit exceeded")
+                chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", errors="replace")
 
     def _clean_html(self, html: str) -> str:
         """Strip HTML tags and clean whitespace."""
