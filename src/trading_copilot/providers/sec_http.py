@@ -1,6 +1,7 @@
 """Shared process-wide SEC fair-access transport. No invented contact identity."""
 from __future__ import annotations
 
+import math
 import re
 import threading
 import time
@@ -29,6 +30,34 @@ def safe_sec_url(url: str) -> str:
 
 class SECTransport:
     MAX_DECODED = 20_000_000
+    RETRY_TIME_BUDGET = 30.0
+    MAX_RETRY_WAIT = 5.0
+
+    @staticmethod
+    def _remaining(deadline: float) -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise httpx.TimeoutException("SEC unavailable: request time budget exhausted")
+        return remaining
+
+    def _retry_wait(self, retry: str | None, attempt: int, deadline: float) -> None:
+        wait = float(2 ** attempt)
+        if retry is not None:
+            try:
+                try:
+                    wait = float(retry)
+                except ValueError:
+                    parsed = parsedate_to_datetime(retry)
+                    wait = (parsed - datetime.now(timezone.utc)).total_seconds()
+            except (ValueError, TypeError, OverflowError):
+                raise httpx.TransportError("SEC unavailable: invalid retry instruction") from None
+        # Never cap a server instruction then retry earlier than requested.
+        if not math.isfinite(wait) or wait < 0:
+            raise httpx.TransportError("SEC unavailable: invalid retry instruction")
+        if wait > self.MAX_RETRY_WAIT or wait >= self._remaining(deadline):
+            raise httpx.TransportError("SEC unavailable: retry wait exceeds time budget")
+        time.sleep(wait)
+        self._remaining(deadline)
 
     def __init__(self, user_agent: str | None = None, client: httpx.Client | None = None):
         self.user_agent = user_agent or load_settings().sec_user_agent
@@ -42,18 +71,31 @@ class SECTransport:
             r"example\.(com|org|net)|your[_ -]?email", ua, re.I
         ):
             raise ValueError("SEC_USER_AGENT must identify your organization and real contact email")
+        deadline = time.monotonic() + self.RETRY_TIME_BUDGET
         for attempt in range(3):
-            with _LOCK:
-                time.sleep(max(0, 0.125 - (time.monotonic() - _LAST_REQUEST)))
+            if not _LOCK.acquire(timeout=self._remaining(deadline)):
+                raise httpx.TimeoutException("SEC unavailable: request time budget exhausted")
+            try:
+                spacing = max(0, 0.125 - (time.monotonic() - _LAST_REQUEST))
+                if spacing >= self._remaining(deadline):
+                    raise httpx.TimeoutException("SEC unavailable: request time budget exhausted")
+                time.sleep(spacing)
+                self._remaining(deadline)
                 _LAST_REQUEST = time.monotonic()
+            finally:
+                _LOCK.release()
+            retry = None
             try:
                 # Enforce no-redirects even for injected clients; stream body to cap decoded size.
-                with self.client.stream("GET", url, headers={"User-Agent": ua}, follow_redirects=False) as stream:
+                with self.client.stream("GET", url, headers={"User-Agent": ua}, follow_redirects=False,
+                                        timeout=min(30.0, self._remaining(deadline) / 4)) as stream:
+                    self._remaining(deadline)
                     response = stream
                     if response.status_code == 200:
                         chunks = []
                         total = 0
                         for chunk in response.iter_bytes():
+                            self._remaining(deadline)
                             total += len(chunk)
                             if total > self.MAX_DECODED:
                                 raise ValueError("SEC response exceeds maximum decoded size")
@@ -61,22 +103,19 @@ class SECTransport:
                         response._content = b"".join(chunks)
                     if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
                         retry = response.headers.get("Retry-After")
-                        if retry:
-                            try:
-                                wait = float(retry)
-                            except ValueError:
-                                # HTTP-date Retry-After
-                                wait = max(0, (parsedate_to_datetime(retry) - datetime.now(timezone.utc)).total_seconds())
-                        else:
-                            wait = 2 ** attempt
-                        time.sleep(wait)
-                        continue
-                    response.raise_for_status()
-                    return response
+                    else:
+                        if not 200 <= response.status_code < 300:
+                            raise httpx.HTTPStatusError(
+                                f"SEC request failed (HTTP {response.status_code})",
+                                request=response.request, response=response,
+                            )
+                        self._remaining(deadline)
+                        return response
             except httpx.TransportError:
                 if attempt == 2:
-                    raise
-                time.sleep(2 ** attempt)
+                    raise httpx.TransportError("SEC unavailable: transport request failed") from None
+            # Release the response/connection before waiting; no throttle lock is held.
+            self._retry_wait(retry, attempt, deadline)
         raise RuntimeError("SEC request exhausted")
 
     def close(self) -> None:
