@@ -10,6 +10,8 @@ Latest: **UX2a bounded identity PASS**. All5 target names/exchanges resolve from
 
 Subsequent chart recheck: **chart leaf PASS**, real320/390/1440 light/dark, priorall5-symbol/range evidence retained; source disclosure/providerlink/touchguidance/palette/tabnavigation fixed, no pageerrors/overflow.38 chart/stock tests PASS. Header price remains independent of historical window. FullUX3 remains open for remaining stock-summary/earnings/actions work; continue UX2b/c/d, not a final product claim.
 
+Provider-only filing-category leaf independentlyPASS:94 tests +209 quota/cap combinations; source preserved at `561cb62a`. Website/per-symbol API wiring remains open. Bars source/provider/securityPASS awaits runtime restart; earnings source implementationFAIL fixes active with genuineofficial403 livegate limits. FullUX2 remains open.
+
 ## Current — R1 normal-runtime integration verified (2026-10-16)
 
 The prior functional-completion claim at `c9b77fbd` was withdrawn. Actual user testing exposed Vite3000 serving without a FastAPI8000 listener: local watchlists failed through the proxy as500 while direct8000 refused connections. R1 repairs normal startup rather than blaming providers: **`npm --prefix frontend run dev`** now owns both servers, gates Vite on initialized JSON backend/database health, tolerates transient probe failures and refuses unknown occupied ports. Backend Settings loads root `.env` without manual credential exports.
