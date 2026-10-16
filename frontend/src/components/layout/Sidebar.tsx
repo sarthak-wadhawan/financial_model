@@ -12,32 +12,11 @@ const navigation = [
   { label: 'Settings', href: '/settings', icon: 'settings' },
 ]
 
-export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; onToggle?: () => void }) {
+export function Sidebar({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
   const location = useLocation()
 
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Sidebar navigation">
-      <div className="sidebar-header">
-        {!collapsed && (
-          <div className="sidebar-brand">
-            <span className="logo-text">Trading Copilot</span>
-          </div>
-        )}
-        {onToggle && <button
-          className="sidebar-toggle"
-          onClick={onToggle}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-expanded={!collapsed}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            {collapsed ? (
-              <path d="M9 18l6-6-6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            ) : (
-              <path d="M15 18l-6-6 6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            )}
-          </svg>
-        </button>}
-      </div>
 
       <nav className="sidebar-nav" aria-label="Main navigation">
         <ul className="nav-list" role="list">
@@ -45,8 +24,10 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
             <li key={item.href}>
               <Link
                 to={item.href}
-                className={`nav-item ${location.pathname === item.href ? 'active' : ''}`}
-                aria-current={location.pathname === item.href ? 'page' : undefined}
+                onClick={onNavigate}
+                title={collapsed ? item.label : undefined}
+                className={`nav-item ${location.pathname === item.href || location.pathname.startsWith(`${item.href}/`) ? 'active' : ''}`}
+                aria-current={location.pathname === item.href || location.pathname.startsWith(`${item.href}/`) ? 'page' : undefined}
                 aria-label={collapsed ? item.label : undefined}
               >
                 <span className="nav-icon" aria-hidden="true">
@@ -59,20 +40,6 @@ export function Sidebar({ collapsed = false, onToggle }: { collapsed?: boolean; 
         </ul>
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="sidebar-user">
-          <div className="user-avatar" aria-hidden="true">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <circle cx="12" cy="8" r="4" />
-              <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
-            </svg>
-          </div>
-          <div className="user-info">
-            <span className="user-name">Researcher</span>
-            <span className="user-plan">Free</span>
-          </div>
-        </div>
-      </div>
     </aside>
   )
 }

@@ -1,11 +1,23 @@
-import { Link } from 'react-router-dom'
+import { useState, type RefObject } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTheme } from '../../context/ThemeContext'
 
-export function Header() {
+export function Header({ navigationExpanded, onToggleNavigation, toggleRef }: { navigationExpanded: boolean; onToggleNavigation: () => void; toggleRef: RefObject<HTMLButtonElement> }) {
+  const { pathname, search } = useLocation()
+  const routeKey = pathname + search
+  const routeQuery = pathname === '/search' ? new URLSearchParams(search).get('q') : null
+  const [field, setField] = useState(() => ({ routeKey, query: routeQuery ?? '' }))
+  const navigate = useNavigate()
+  // Adjust only on URL changes; theme/layout renders must preserve a draft.
+  if (field.routeKey !== routeKey) setField({ routeKey, query: routeQuery ?? field.query })
+  const query = field.query
 
   return (
     <header className="header" role="banner">
       <div className="header-container">
+        <button ref={toggleRef} type="button" className="shell-nav-toggle" onClick={onToggleNavigation} aria-controls="primary-sidebar" aria-expanded={navigationExpanded} aria-label={navigationExpanded ? 'Collapse navigation' : 'Expand navigation'}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
         <Link to="/" className="header-logo" aria-label="Trading Copilot Home">
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
             <rect width="32" height="32" rx="6" fill="currentColor" />
@@ -14,20 +26,13 @@ export function Header() {
           <span className="logo-text">Trading Copilot</span>
         </Link>
 
-        <nav className="header-nav" aria-label="Main navigation">
-          <Link to="/" className="nav-link">Dashboard</Link>
-          <Link to="/scanner" className="nav-link">Scanner</Link>
-          <Link to="/macro" className="nav-link">Macro Calendar</Link>
-          <Link to="/search" className="nav-link">Search</Link>
-        </nav>
+        <form className="shell-search" role="search" aria-label="Global stock search" onSubmit={event => { event.preventDefault(); if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`) }}>
+          <label className="sr-only" htmlFor="global-stock-search">Search stocks or companies</label>
+          <input id="global-stock-search" type="search" placeholder="Search stocks or companies" value={query} onChange={event => setField({ routeKey, query: event.target.value })} />
+          <button type="submit" aria-label="Submit stock search" disabled={!query.trim()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="m15 15 6 6" /></svg></button>
+        </form>
 
         <div className="header-actions">
-          <details className="mobile-nav">
-            <summary className="mobile-nav-toggle">Menu</summary>
-            <nav aria-label="Mobile navigation" onClick={e => e.currentTarget.closest('details')?.removeAttribute('open')} onKeyDown={e => { if (e.key === 'Escape') { const details = e.currentTarget.closest('details'); details?.removeAttribute('open'); details?.querySelector('summary')?.focus() } }}>
-              {['Dashboard', 'Scanner', 'Macro', 'Search', 'Watchlists', 'Calendar', 'Alerts', 'Settings'].map((label, i) => <Link key={label} className="nav-link" to={['/', '/scanner', '/macro', '/search', '/watchlists', '/calendar', '/alerts', '/settings'][i]}>{label}</Link>)}
-            </nav>
-          </details>
           <ThemeToggle />
         </div>
       </div>
