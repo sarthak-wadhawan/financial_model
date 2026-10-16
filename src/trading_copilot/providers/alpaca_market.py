@@ -66,6 +66,7 @@ class AlpacaMarketDataProvider:
         self.max_symbols_per_request = max_symbols_per_request
         self.timeout = timeout_seconds
         self.feed = feed
+        self.last_retrieval_metadata: dict[str, dict] = {}
 
         if not self.api_key or not self.api_secret:
             raise ValueError(
@@ -100,16 +101,21 @@ class AlpacaMarketDataProvider:
         # Sort symbols for consistent key
         sorted_symbols = sorted(symbols)
         key_parts = [
-            "alpaca",
+            "alpaca-v2-exact-bounds",
+            self.base_url,
             data_type,
             self.feed,
             timeframe,
             ",".join(sorted_symbols),
-            start.date().isoformat(),
-            end.date().isoformat(),
+            self._rfc3339(start),
+            self._rfc3339(end),
         ]
         key_str = "|".join(key_parts)
         return hashlib.sha256(key_str.encode()).hexdigest()[:32]
+
+    @staticmethod
+    def _rfc3339(value: datetime) -> str:
+        return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
     def _parse_alpaca_bar(self, bar: dict[str, Any], symbol: str) -> DailyBar:
         """Convert Alpaca bar format to DailyBar model."""
@@ -148,8 +154,8 @@ class AlpacaMarketDataProvider:
         Returns dict mapping symbol to list of bar dicts.
         """
         # Format dates for Alpaca API (RFC3339)
-        start_str = start.strftime("%Y-%m-%d")
-        end_str = end.strftime("%Y-%m-%d")
+        start_str = self._rfc3339(start)
+        end_str = self._rfc3339(end)
 
         params = {
             "symbols": ",".join(symbols),
@@ -165,6 +171,7 @@ class AlpacaMarketDataProvider:
 
         all_bars_by_symbol: dict[str, list[dict]] = {symbol: [] for symbol in symbols}
         page_token = None
+        seen_tokens = set()
 
         while True:
             if page_token:
@@ -195,6 +202,9 @@ class AlpacaMarketDataProvider:
             page_token = data.get("next_page_token")
             if not page_token:
                 break
+            if page_token in seen_tokens:
+                raise ValueError("Repeated Alpaca pagination token")
+            seen_tokens.add(page_token)
 
             logger.debug("Fetching next page of bars (token present)")
 
@@ -223,7 +233,9 @@ class AlpacaMarketDataProvider:
 
         # If no minimum sessions required, use simple fetch
         if min_trading_sessions is None:
-            results, _ = self._get_daily_bars_simple(symbols, start, end)
+            results, statuses = self._get_daily_bars_simple(symbols, start, end)
+            if "provider_error" in statuses.values():
+                raise RuntimeError("Alpaca market data request failed; use status API for partial results")
             return results
 
         # Otherwise, iteratively expand lookback until we have enough sessions
@@ -238,6 +250,8 @@ class AlpacaMarketDataProvider:
                          attempt + 1, max_attempts, len(symbols), current_start.date(), end.date())
             
             results, statuses = self._get_daily_bars_simple(symbols, current_start, end)
+            if "provider_error" in statuses.values():
+                raise RuntimeError("Alpaca market data request failed; use status API for partial results")
 
             # Check if all symbols have enough sessions
             all_sufficient = True
@@ -300,15 +314,14 @@ class AlpacaMarketDataProvider:
         """
         # Check cache first
         cache_key = self._cache_key(symbols, start, end, data_type="bars")
+        self.last_retrieval_metadata = {}
         if self.cache:
             cached = self.cache.get(cache_key)
-            if cached is not None:
+            if isinstance(cached, dict) and cached.get("schema") == 2 and cached.get("provenance"):
                 logger.info("Cache hit for %d symbols (bars)", len(symbols))
-                # Cache stores (results, statuses)
-                if isinstance(cached, tuple) and len(cached) == 2:
-                    return cached
-                # Backward compatibility: old cache format without statuses
-                return cached, {symbol: "available" for symbol in symbols}
+                self.last_retrieval_metadata = cached["provenance"]
+                return cached["results"], cached["statuses"]
+            # Legacy entries have no upstream retrieval provenance: refetch.
 
         # Batch symbols to respect API limits
         all_results: dict[str, list[DailyBar]] = {}
@@ -316,9 +329,9 @@ class AlpacaMarketDataProvider:
 
         for i in range(0, len(symbols), self.max_symbols_per_request):
             batch = symbols[i:i + self.max_symbols_per_request]
-            batch_status = "available"
             try:
                 batch_results = self._fetch_bars_batch(batch, start, end)
+                retrieved_at = datetime.now(timezone.utc).isoformat()
 
                 # Convert to DailyBar objects
                 for symbol, bars in batch_results.items():
@@ -331,32 +344,28 @@ class AlpacaMarketDataProvider:
                             continue
                     all_results[symbol] = daily_bars
                     all_statuses[symbol] = "empty" if not daily_bars else "available"
+                    self.last_retrieval_metadata[symbol] = {
+                        "retrieved_at": retrieved_at,
+                        "source_url": self.base_url.rstrip("/") + "/v2/stocks/bars",
+                    }
 
             except httpx.HTTPStatusError as e:
-                if e.response.status_code >= 500:
-                    # Server error - re-raise for retry
-                    raise
-                elif e.response.status_code == 429:
-                    # Rate limited - re-raise for retry
-                    raise
-                else:
-                    # Client error (4xx) - classify as provider_error
-                    logger.error("Client error fetching bars for batch: %s (status=%d)", e, e.response.status_code)
-                    for symbol in batch:
-                        all_results[symbol] = []
-                        all_statuses[symbol] = "provider_error"
-                    batch_status = "provider_error"
+                # Retries are exhausted inside _fetch_bars_batch.
+                logger.error("Market bars request failed (status=%d)", e.response.status_code)
+                for symbol in batch:
+                    all_results[symbol] = []
+                    all_statuses[symbol] = "provider_error"
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 # Network error - classify as provider_error (do not re-raise for retry on network)
                 logger.error("Network error fetching bars for batch: %s", e)
                 for symbol in batch:
                     all_results[symbol] = []
                     all_statuses[symbol] = "provider_error"
-                batch_status = "provider_error"
 
         # Only cache if no provider errors occurred
         if self.cache and all(s != "provider_error" for s in all_statuses.values()):
-            self.cache.set(cache_key, (all_results, all_statuses))
+            self.cache.set(cache_key, {"schema": 2, "results": all_results, "statuses": all_statuses,
+                                       "provenance": self.last_retrieval_metadata})
 
         return all_results, all_statuses
 

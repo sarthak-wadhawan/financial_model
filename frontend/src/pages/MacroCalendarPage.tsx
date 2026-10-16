@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Badge, Tabs } from '../components/ui'
 import { api } from '../services/api'
-import { DataStatus, displayDate, SourceLink } from '../components/ui/ResearchData'
+import { DataStatus, eventDate, EventTiming, ProviderCoverage, SourceLink } from '../components/ui/ResearchData'
 import type { MacroEventResponse } from '../services/api'
 
 export function MacroCalendarPage() {
@@ -29,7 +29,7 @@ export function MacroCalendarPage() {
     const base = filteredEvents
     switch (activeTab) {
       case 'upcoming':
-        return base.filter((e: MacroEventResponse) => !e.released_at && ['SCHEDULED', 'UPDATED'].includes(e.status.toUpperCase()))
+        return base.filter((e: MacroEventResponse) => !e.released_at && ['SCHEDULED', 'UPDATED'].includes(e.status.toUpperCase()) && (!eventDate(e) || eventDate(e)!.slice(0, 10) >= new Date().toISOString().slice(0, 10)))
       case 'recent':
         return base.filter((e: MacroEventResponse) => !!e.released_at || e.status.toUpperCase() === 'RELEASED')
       default:
@@ -86,6 +86,8 @@ export function MacroCalendarPage() {
         </div>
       </div>
 
+      <ProviderCoverage />
+
       <DataStatus error={isError} label="macro events" />
       {isError && <button className="btn btn-secondary" onClick={() => refetch()}>Retry macro events</button>}
       <div className="calendar-view">
@@ -121,7 +123,7 @@ export function MacroCalendarPage() {
                 <tr key={event.event_id}>
                   <td>
                     <span className="event-date">
-                      {displayDate(event.scheduled_at)}
+                      <EventTiming event={event} />
                       {event.released_at && (
                         <span className="release-time">
                           Released (as supplied): {event.released_at}

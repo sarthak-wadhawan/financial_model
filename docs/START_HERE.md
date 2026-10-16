@@ -1,5 +1,17 @@
 # Trading Copilot — Start Here
 
+> **CURRENT — 2026-10-16: Phase 1–11 local website repair verification PASS. Phase 12 is ON HOLD.** Resumed yesterday's checkpoint without rebuilding the plan; all 48 checkpoint files matched their saved hashes. Final backend: **492 passed / 35 skipped / 0 failed**. Reused unchanged frontend evidence: **161 unit passed / 0 failed**, **112 Chromium E2E passed / 0 failed**, build/TypeScript/lint PASS. Independent Provider Auditor, Security Reviewer and rendered-site Reviewer: **PASS**. See `docs/FULL_SYSTEM_AUDIT.md` and the final section of `docs/current_task_graph.md`; dated handoffs below are historical, not current coverage claims.
+
+## NEXT ACTION
+
+If the verified repair is not yet published, finish only selective source/test/docs commit and normal push after the final handoff review. Otherwise **HOLD: no Phase 12 or further phase is authorized**. Preserve the original database, generated-file churn and unrelated user work. This is local website verification, not deployment approval.
+
+### Local startup
+
+From the repository root, install `python3 -m pip install -e '.[web,dev]'` and run `LLM_ENABLED=false python3 -m backend.main` (loopback port 8000). In `frontend/`, use Node 22 (`.nvmrc`), install the lockfile with `npm ci`, then `npm run dev` (strict loopback port 3000). Real mode never silently falls back to fixtures; missing credentials/providers produce explicit unavailable states. Set credentials only in the backend environment; never expose them in the frontend.
+
+Verification used Python 3.10.12 and the existing temporary Node 20.17.0 installation; that Node version is below the declared >=20.19 engine. Node 22 is the recommended startup environment, not an additional claimed test run. Verification servers were stopped at the pause; start them explicitly when needed. Tests and browser mutations used disposable databases, not the operator's original database.
+
 > Fresh coding-agent session: Read this file first, then PROJECT_STATUS.md, then the authoritative requirements/architecture/roadmap documents referenced below. Inspect the repository and Git history, run the tests, verify documented state against the code, and continue from NEXT ACTION. Do not rebuild completed phases.
 
 ---
@@ -52,7 +64,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 ---
 
-## Completed Phases
+## Historical Phase Milestones (current coverage: FULL_SYSTEM_AUDIT.md)
 
 | Phase | Status | Key Deliverables |
 |-------|--------|------------------|
@@ -68,7 +80,7 @@ Company Providers (Earnings/SEC/Insiders/News) ───────────
 
 ---
 
-## Current Phase
+## Historical Phase 9 Handoff (superseded)
 
 ### Phase 9 — Interpretation + Impact Engine / Answer Engine
 
@@ -183,7 +195,7 @@ HUMAN DECISION
 
 ---
 
-## Data Providers
+## Historical Provider Inventory (not a current coverage guarantee)
 
 | Provider | Status | Notes |
 |----------|--------|-------|
@@ -201,7 +213,7 @@ HUMAN DECISION
 
 ---
 
-## Tests
+## Historical Test Snapshots (superseded by current verification)
 
 ```
 Offline baseline: 284 passed, 34 skipped (includes Phase 7 earnings intelligence/reaction/parsers + Phase 8 news/management unit tests + Phase 9 interpretation/answer/term unit tests + audit tests)
@@ -219,13 +231,13 @@ RUN_LIVE_TESTS=1 python3 -m pytest -q   # live tests
 
 ## Current Known Limitations
 
-1. **BEA/Census APIs require free registration keys** — implemented but need keys for live tests
-2. **Fed FOMC HTML parsing** — unreliable for upcoming meetings; uses fixtures for current year
-3. **ISM/Conference Board/UMich/Industrial Production** — marked PROVIDER_PENDING (no reliable free API)
-4. **SEC live ingestion** — requires genuine operator SEC_USER_AGENT; no API key needed
-5. **Leadership coverage** — evidence-derived only; unparsed announcements remain unknown (Phase 9)
-6. **No AI/evidence/answer engine yet** — Phase 8-9
-7. **No website/frontend yet** — Phase 10
+1. **Coverage is bounded, not exhaustive.** SEC/IR/Fed ingestion worked in disposable live verification; failed BLS/news requests remain explicit partial/provider-error states. IEX completed daily closes are not live consolidated quotes.
+2. **BEA/Census and future earnings-calendar website coverage are unavailable.** No fixture calendar or invented observations fill real mode. Other standalone provider capabilities are not implied by the bounded website refresh bridge.
+3. **Timestamp fidelity is conservative.** Date-only calendar events retain dates without invented instants; unsupported date-only/timezone-unknown feed entries are omitted. IR update/creation times are not original publication times. Exact source midnight remains exact.
+4. **Evidence/leadership coverage is limited.** Leadership is derived from ingested filings, not a complete officer roster. Ambiguous quote attribution is rejected; missing evidence remains unknown. Scenario probabilities are uncalibrated/null.
+5. **Alerts are manually evaluated, in-app only.** Supported price/change/volume/quant observations can produce genuine stored triggers; dry-run does not mutate history. Scheduling, email/webhooks and trading are not implemented or claimed.
+6. **Security approval is local-only.** Loopback defaults, bounds, links, ICS and CORS were verified. Dependency maintenance and incomplete Python transitive locking are documented in `DEPENDENCY_ADVISORIES.md`. This is not hosted/deployment approval.
+7. **Browser scope is Chromium desktop/mobile.** Prior WebKit system-library limitations are not application PASS evidence. The historically referenced model/deployment architecture document is absent; no architectural approval is inferred from that reference.
 
 ---
 
@@ -253,9 +265,9 @@ python3 -m trading_copilot validate-run 2026-10-05T203400Z --config tests/fixtur
 
 ---
 
-## NEXT ACTION
+## Historical Phase 10 Verification (superseded)
 
-**Phase 10 COMPLETE — All Gates PASS**
+**Historical completion claim; use the current verification report above.**
 
 ### Phase 10 Final Verification Report (2026-10-12)
 
@@ -318,7 +330,7 @@ Do not reopen Phase 10 unless later development reveals an actual functional reg
 
 ---
 
-## Phase 11 — Watchlists + Calendar + Alerts — COMPLETE ✅
+## Historical Phase 11 Handoff — Watchlists + Calendar + Alerts
 
 ### Phase 11 Completion Summary (2026-10-13)
 
@@ -366,7 +378,7 @@ Do not reopen Phase 10 unless later development reveals an actual functional reg
 - Frontend Lint: PASS (pre-existing issues only)
 - Backend unit tests: 286 passed / 34 skipped
 
-**Next Phase:** Phase 12 — Historical Event Impact Analytics (after full-system audit)
+**Current boundary:** Phase 12 remains ON HOLD; this historical handoff does not authorize advancement.
 
 ---
 
@@ -375,7 +387,7 @@ Do not reopen Phase 10 unless later development reveals an actual functional reg
 1. `docs/FINAL_PRODUCT_REQUIREMENTS.md` — what the finished product must do
 2. `docs/SYSTEM_ARCHITECTURE_UPDATED.md` — approved architecture
 3. `docs/DEVELOPMENT_ROADMAP_UPDATED.md` — build sequence and phase success criteria
-4. `docs/MODEL_AND_DEPLOYMENT_ARCHITECTURE.md` — model research, LLM policy, browser/serverless deployment
+4. `docs/MODEL_AND_DEPLOYMENT_ARCHITECTURE.md` — historically referenced but absent; do not invent its contents or approvals
 5. `docs/PROJECT_STATUS.md` — detailed implementation history/current factual state
 6. `docs/START_HERE.md` — this file (concise current-session bootstrap/handoff)
 

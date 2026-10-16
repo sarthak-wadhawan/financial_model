@@ -15,6 +15,7 @@ function mount() {
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/stocks/AAPL']}><Routes><Route path="/stocks/:symbol" element={<StockPage />} /></Routes></MemoryRouter></QueryClientProvider>)
 }
 beforeEach(() => {
+  vi.spyOn(api, 'getProviderCoverage').mockResolvedValue({ providers: {} })
   vi.spyOn(api, 'getStockDetail').mockResolvedValue(stock)
   vi.spyOn(api, 'getInterpretation').mockResolvedValue(interpretation)
   vi.spyOn(api, 'getBars').mockResolvedValue({ symbol: 'AAPL', timeframe: '1Day', bars: [], status: 'empty', reason: 'No stored bars', source: 'test-fixture', mode: 'demo' })

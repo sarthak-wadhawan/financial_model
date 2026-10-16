@@ -444,7 +444,12 @@ h3 { font-size: 1.05rem; }
 .tab:hover, .tab.active { color: var(--color-accent); border-bottom-color: var(--color-accent); background: var(--color-info-bg); }
 .tab:disabled { opacity: .5; cursor: not-allowed; }
 .stock-header-main, .stock-identity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
-.stock-price { text-align: right; }
+.stock-header { flex-direction: column; align-items: stretch; }
+.stock-header > * { min-width: 0; }
+.stock-header .stock-tabs { width: 100%; }
+.metric-card .metric-change, .metric-card small { display: block; margin-top: 8px; }
+.provider-coverage li { overflow-wrap: anywhere; margin-block: 8px; }
+.stock-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; text-align: right; }
 .current-price { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .price-change, .stock-exchange { font-size: .875rem; color: var(--color-text-secondary); }
 .impact-grid, .settings-grid, .earnings-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }

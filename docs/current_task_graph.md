@@ -531,3 +531,92 @@ All three auditors completed read-only verification against current repaired cod
 | R2 | Reviewer | Test env limitations undocumented | P (docs) | Update `START_HERE.md` and `PROJECT_STATUS.md` with test env notes |
 
 Next dispatch wave: D/J for P7/P8/S2/S4; B for S5a/S5b; K for R1; P for R2. Then full regression → auditors re-check → docs/commit.
+
+## 2026-10-15 Shepherd pause checkpoint
+
+**User requested pause because credits expire; resume in approximately five hours. This is a checkpoint, NOT a completion claim. NO Phase 12.** Existing A–P DAG above remains the plan; do not recreate it or reread the entire repository.
+
+### Current node classifications
+
+| Node | Status | Current evidence |
+|---|---|---|
+| A reproduce | PASS | Original failures reproduced; eight current route/viewport screenshots retained |
+| B Vite | PASS | Owned strict-port 3000 server; working normal API proxy |
+| C CSS | PASS | Styled desktop/mobile; no document overflow |
+| D API | PASS | Real paths, bounded inputs, date-only filtering, current observation wiring |
+| E dashboard | PASS | Market-first ordering; provider coverage and scoped refresh |
+| F scanner | PASS | Deterministic values, partial errors, genuine provenance; scan→status ordering and market date fixed |
+| G stock | PASS | Real price, evidence/management views, honest unknown impacts and uncalibrated scenarios |
+| H Phase11 | PASS | Persistence; genuine manual evaluation/history/ack; side-effect-free dry-run; valid date-only ICS |
+| I accessibility | PASS | Mobile term taps, keyboard/modal focus, responsive layout independently checked |
+| J providers | PASS | P7/P8 and reachable extraction/validation repaired; final timestamp boundary independently approved |
+| K tests | NEEDS VERIFICATION | Final broad backend run required after last feed timestamp guard; frontend suites already current |
+| L screenshots | PASS | Six desktop pages plus Dashboard/AAPL at 375px, independently visually reviewed |
+| M provider audit | PASS | Final combined verdict, including actual feedparser timestamp matrix |
+| N security | PASS | Loopback, bounds, URLs/ICS/CORS/secrets and harness DB isolation checked |
+| O reviewer | PASS | All original material and subsequent minor findings resolved/rechecked |
+| P docs/commit | NEEDS VERIFICATION | Only pause notes and dependency correction saved; final reconciliation/staging/commit/push pending |
+
+### Resume in this order
+
+1. Read this checkpoint; inspect `git status --short` selectively. HEAD/main remains `0dc30132`; no staging, commit or push performed. Remote main matched that hash when last checked; recheck before eventual push.
+2. All application implementation is finished. **Do not launch more broad discovery or research.** Final changed source is on disk. Only repair an actual failing test/auditor finding.
+3. Run exactly one final broad backend regression on the current source: `LLM_ENABLED=false python3 -m pytest -o addopts='' -q --durations=3 --junitxml=/tmp/opencode/repair-backend-final.xml`. Allow roughly 7–8 minutes; do not treat timeout/interruption as PASS. Latest successful earlier run was 474 passed / 35 skipped / 0 failed, 422.65s, before the last feed guard. New targeted cases are not included in that old total.
+4. Preserve successful frontend results unless relevant source changes: final full unit **161 passed / 0 failed**, full desktop/mobile Chromium **112 passed / 0 failed**, build/TypeScript/lint **PASS**. Tests now reject accidental real XHR/fetch; unit suite passed with API base `http://127.0.0.1:9/api/v1`. Node used `/tmp/node-v20.17.0-linux-x64/bin`; declared supported engine is >=20.19, `.nvmrc` recommends 22. Record actual tested environment honestly.
+5. Once regression passes, minimally reconcile START_HERE, PROJECT_STATUS, this graph and FULL_SYSTEM_AUDIT. Historical START_HERE sections still contain obsolete Phase 9/10 handoffs and false “no website yet” limitations: mark historical/correct, do not trust them. Explicitly hold Phase 12. Dependency advisory correction is already independently approved.
+6. Review and stage **only explicit legitimate source/docs/tests**. Durable backup/allowlist is recorded below. Never stage generated churn, database, skills, old user screenshots/scripts, or the pre-existing legacy requirements snapshot. `git diff --cached --check`; inspect staged names/diff; normal commit and `git push origin main` only after gates. Never force push; stop if remote diverged. Do not create an empty verification commit.
+
+### Final repairs / bounded limitations
+
+- Alpaca: exact RFC3339 historical bounds/cache keys; pagination/repeated-token protection; errors do not silently become cached empty bars; scanner partial failures explicit; true original upstream retrieval timestamps retained. TTL and newest-evidenced leadership source URL/retrieval/filing date verified.
+- Reachable `WebsiteSourceAdapter` now includes IR/exhibits plus deterministic management extraction and validated quote/attribution spans. The separate `WebsiteEvidenceAdapter` remains unused intentionally; do not wire its unsafe broad refresh paths wholesale.
+- Wrong-speaker Alice/Bob quote verification fixed and independently replayed. Raw headlines do not inflate validated-claim confidence. Missing evidence no longer implies stable fundamentals or neutral/low stock impact. All Base/Bull/Bear probability bands are null and explicitly uncalibrated; no Phase 12 research undertaken.
+- Feedparser aliases previously invented update timestamps. Actual supplied keys now govern timestamps. Final shared RSS/IR guard requires an actual clock AND timezone; date-only/timezone-unknown entries are conservatively omitted, not promoted to midnight/UTC. RSS update/create-only entries are not publication evidence; IR preserves known update/create concepts without claiming original release. Explicit source midnight remains valid. **Last implementation verification: 36 affected tests passed; independent auditor: 24 selected regressions plus 30 actual-feedparser matrix cases passed.** Do not add these overlapping counts to broad-suite totals.
+- Real disposable runtime refresh populated SEC filings/insiders, Fed meeting dates and seven IR releases. Current-window earnings/exhibits were genuinely empty; macro partial/BLS failures and news provider_error remain explicit. BEA/Census parsers and future earnings calendar remain unsupported/unavailable in the website bridge. Leadership is ingested-filings-only, not a complete authoritative officer roster. No live management quotes were fabricated; populated extraction is proven by injected transport endpoint regressions.
+- Live API proved future Fed dates survive filters/upcoming and export `DTSTART;VALUE=DATE:20261028` / `20261209`, no fabricated midnight. Actual AAPL price dry-run had zero history mutation; manual evaluation created a genuine trigger and persisted acknowledgment.
+- Scanner status now follows scan completion/refetch, exposes a source-consistent market timestamp. E2E teardown waits pending route handlers.
+- API entrypoint and Vite default to loopback. Old verified repository-owned wildcard PID was gracefully replaced, no unknown processes killed. Security PASS is local-only, not deployment approval.
+- Required untracked `frontend/website_repair_capture.cjs` is now hardened to force its child DB path despite inherited `TRADING_COPILOT_DB_PATH`. Independent security replay verified a disposable inherited sentinel remained unchanged while a watchlist mutation landed only in the fresh harness DB. Include this harness in the eventual commit.
+- `docs/DEPENDENCY_ADVISORIES.md` now correctly attributes old msgpack/urllib3 risk to unused legacy `alpaca-trade-api`, NOT feedparser, and distinguishes declared `web`/`full` extras from the incomplete untracked requirements snapshot. No dependency change required; cleanup/complete locking are nonblocking maintenance.
+
+### Recovery locations / safe runtime
+
+- Source/tests are saved in the current working tree. **No source reset/restore/clean was used.** Initial 1773 dirty entries included 1747 generated frontend entries plus legitimate tests/scripts and the pre-existing modified `data/events.db`. Preserve all unrelated work; no generated deletion/untracking authorized.
+- Durable explicit staging manifest: `.git/repair-checkpoints/phase1-11-20261015-paths.txt`. Durable source/test/docs archive: `.git/repair-checkpoints/phase1-11-20261015.tar.gz`. Archive intentionally excludes generated dependencies/builds/reports, databases, credentials and unrelated user work. Archive is an additional backup, not permission to overwrite current files.
+- Extra session notes/allowlist: `/tmp/opencode/repair-resume-findings.md`, `/tmp/opencode/repair-release-paths.txt`; these may expire, so this repository checkpoint is authoritative for resumption.
+- Eight current screenshots/metrics: `/tmp/opencode/repair-browser/` (Dashboard, Scanner, AAPL, Watchlists, Calendar, Alerts desktop; Dashboard/AAPL mobile). Latest full E2E artifacts `/tmp/opencode/repair-e2e-release/`; backend JUnit may be overwritten by the final rerun.
+- If still running: owned Vite `127.0.0.1:3000`; owned normal backend `127.0.0.1:8000` uses **disposable** `/tmp/opencode/repair-runtime.db`, not original data. That process predates the final RSS guard: restart the verified owned backend before final live ingestion checks. Original `data/events.db` was never mutated for screenshots.
+- Disposable marker backend `18080` latest environment `/tmp/opencode/website-repair-zDilp8/environment.sh`; older agent-owned disposable `18081` may also remain. Tokens change on restart. Never reuse a stale token or mutate an unverified backend. Stop only verified owned processes; leave pre-existing 3001 Vite untouched. No processes are guaranteed to survive the pause.
+- From root: `python3 -m pip install -e '.[web,dev]'` supplies runtime/test dependencies. Existing `.venv` lacks FastAPI; verified runs used system Python3.10.12. Backend `LLM_ENABLED=false python3 -m backend.main`; frontend Node22 / `npm run dev` on strict loopback3000. Never print credential values.
+
+### Independent sessions (reuse if available; do not spawn many agents)
+
+- Provider auditor: `ses_ebf2a3b17ffeTrldThrCFKDqeX` — final combined PASS after final feed precision recheck.
+- Security reviewer: `ses_ebf2a1f7dffeEuB3odXZqXdfvj` — final PASS including dependency docs and harness isolation.
+- Rendered-site reviewer: `ses_ebf133710ffefoP5TMVwhQYUig` — final PASS after scanner/harness recheck.
+- API/calendar/alert BUILD: `ses_ebf25ea3bffeodKl0w6Za3otMg`.
+- Provider/extraction BUILD: `ses_ebf23f138ffeD5aSV0MQPa8t7Y`.
+- Frontend/harness BUILD: `ses_ebf209e8bffetAXKTb44WUHWGo`.
+- All workers were available general agents assigned bounded BUILD/audit roles; exact routed model/durations were not reported. Maximum two concurrently; no research agents. All agents finished at pause. No automatic continuation is scheduled; resume on the user's next message.
+
+## 2026-10-16 — Checkpoint Resumed / Final Verification
+
+This section supersedes the dated pause classifications, without replacing the existing DAG. All 48 checkpoint files matched their archive on resumption; no implementation node was restarted and no source code changed. Prior Provider/Security/rendered Reviewer PASS evidence and frontend results remain valid.
+
+| Existing nodes | Current status | Evidence |
+|---|---|---|
+| A, B, C, D, E, F, G, H, I, J | PASS | Completed implementation/runtime evidence preserved from checkpoint |
+| K tests | PASS | Final full backend **492 passed / 35 skipped / 0 failed**, 386.02s, final source revision; frontend **161 unit / 112 Chromium passed**, TypeScript/build/lint PASS reused unchanged |
+| L screenshots | PASS | Existing eight route/viewport captures and independent visual review reused |
+| M provider audit | PASS | Final source timestamp/attribution/P7/P8 verdict unchanged |
+| N security | PASS | Final local-only verdict, dependency correction and harness isolation unchanged |
+| O reviewer | PASS | Final rendered-site verdict and bounded scanner/harness recheck unchanged |
+| P docs/commit | PASS | Reconciled handoff independently approved; explicit-path staged checks completed; normal publication is the terminal Git step |
+
+Final backend command: `LLM_ENABLED=false python3 -m pytest -o addopts='' -q --durations=3 --junitxml=/tmp/opencode/repair-backend-final-20261016.xml`. The earlier 474-pass snapshot and overlapping targeted counts are not added to this final result. Two dependency deprecation warnings remain nonblocking.
+
+Only the verified 48-path source/test/config/docs manifest is eligible for staging. Original DB, generated dependencies/builds/reports, unrelated user scripts/screenshots/skills and the legacy requirements snapshot stay untouched/unstaged. Remote main matched `0dc30132` on final fetch. Independent handoff review returned PASS after inspecting current docs, the manifest and final JUnit; prior application/provider/security gates remain closed. Publication is recorded by Git history/remote, not a self-referential commit hash in this document. **NEXT ACTION: normal selective commit/push if not yet published; otherwise HOLD. No Phase 12.**
+
+### Bounded leaf P1 — Staged whitespace gate: PASS
+
+The staged check caught trailing spaces on 40 blank lines in the previously untracked `tests/test_website_evidence.py`. BUILD `ses_eba4f7da4ffe3rSOvygn3b7QDE` removed only those spaces; exact AST (including attributes), line count and newline style remained identical. Parent verifies the staged-to-working-file whitespace-only transformation and reruns the staged whitespace check. No functional test/audit evidence is invalidated and no broad test suite is repeated for this formatting-only leaf.

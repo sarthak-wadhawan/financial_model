@@ -1,6 +1,18 @@
 # Project Status
 
-## 1. Current Project Goal
+## 2026-10-16 — Current: Phase 1–11 Local Website Repair Verified
+
+Resumed the saved A–P DAG at node K; all 48 source/test/docs checkpoint files were unchanged. **Final full backend regression: 492 passed / 35 skipped / 0 failed**, 386.02 seconds, on the final feed-precision implementation. Frontend source was unchanged, so existing **161 unit passed / 0 failed**, **112 Chromium desktop/mobile E2E passed / 0 failed**, TypeScript/build/lint PASS evidence was reused. Independent Provider Auditor, Security Reviewer and rendered-site Reviewer remain PASS. Overlapping targeted runs are not added to these totals.
+
+Repairs cover real API/provider integration, pagination/exact historical bounds/cache provenance, validated reachable evidence extraction, date-only calendar semantics, genuine local alert evaluation/history/acknowledgment, responsive UI and mobile terms. Unsupported sources and uncalibrated interpretations remain explicit; this is not an all-data-available or deployment-readiness claim. See `FULL_SYSTEM_AUDIT.md` for coverage boundaries and `current_task_graph.md` for final gates/publication status.
+
+**NEXT ACTION:** finish only verified selective publication if still outstanding, then HOLD. **Do not start Phase 12.** Original database/generated artifacts/unrelated user files are excluded from the repair commit. Dated entries below are history, not the current development phase.
+
+## 2026-10-15 — User-requested pause / recoverable website repair
+
+Phase 1–11 repair remains **uncommitted and not declared complete**; Phase 12 is prohibited. Resume from the checkpoint at the end of `docs/current_task_graph.md`. Current independent Provider Auditor, Security Reviewer and rendered-site Reviewer verdicts are PASS. Latest completed broad backend run: **474 passed / 35 skipped / 0 failed**, before the final RSS/IR publication-precision guard; that guard subsequently passed 36 targeted tests and independent real-feedparser checks. Final frontend: **161 unit passed**, **112 Chromium E2E passed**, build/TypeScript/lint PASS. Do not sum overlapping targeted runs. Final broad backend regression on the last source revision, documentation reconciliation and selective commit/push remain pending. Preserve generated churn, the original database and unrelated user work.
+
+## 1. Original V1 Project Goal (historical)
 
 Build a small, auditable **AI Trading Research Copilot V1** that:
 - Scans a liquid U.S. equity universe
@@ -15,7 +27,7 @@ The system is a research copilot, not an autonomous trading bot.
 
 ---
 
-## 2. Current Development Phase
+## 2. Historical Development Handoff (superseded by current verification)
 
 **2026-10-07: Phase 7 IN PROGRESS.** Phase 6 COMPLETE (Offline: 157 passed, 19 skipped. Live: 143 passed, 4 skipped). Phase 7: EarningsIntelligenceProvider extracts EPS/revenue actuals, consensus, guidance from SEC 8-K Item 2.02, 10-Q, 10-K. EarningsReactionProvider computes reaction windows (pre-market, immediate AH, next session, 5-session) using Alpaca IEX data anchored to released_at. Timestamp semantics: filing_accepted_at (SEC acceptance) ≠ announcement_released_at (actual earnings release) tracked separately with release_time_source/release_time_precision. Unit tests: 31 new tests passing (15 earnings_intelligence + 16 earnings_reaction), all 43 earnings_parsers tests passing. All existing Phase 1-6 tests pass.
 

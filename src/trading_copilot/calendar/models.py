@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Optional, List, Annotated
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -18,8 +18,8 @@ class CalendarEvent(BaseModel):
     summary: str
     description: Optional[str] = None
     location: Optional[str] = None
-    dtstart: datetime
-    dtend: Optional[datetime] = None
+    dtstart: datetime | date
+    dtend: Optional[datetime | date] = None
     dtstamp: datetime
     url: Optional[str] = None
     categories: List[str] = Field(default_factory=list)
@@ -29,11 +29,11 @@ class CalendarEvent(BaseModel):
 class CalendarExportRequest(BaseModel):
     """Request for calendar export."""
     format: CalendarExportFormat = CalendarExportFormat.ICS
-    event_types: Optional[List[str]] = Field(default=None, max_length=50)
-    symbols: Optional[List[str]] = Field(default=None, max_length=50)
+    event_types: Optional[List[Annotated[str, Field(max_length=64)]]] = Field(default=None, max_length=50)
+    symbols: Optional[List[Annotated[str, Field(max_length=10)]]] = Field(default=None, max_length=50)
     from_date: Optional[datetime | date] = None
     to_date: Optional[datetime | date] = None
-    importance: Optional[List[str]] = Field(default=None, max_length=50)
+    importance: Optional[List[Annotated[str, Field(max_length=16)]]] = Field(default=None, max_length=50)
 
 
 class CalendarExportResponse(BaseModel):

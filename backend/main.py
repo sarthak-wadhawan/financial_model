@@ -42,7 +42,7 @@ from trading_copilot.watchlists.models import (
     WatchlistItemUpdate,
     WatchlistWithItems,
 )
-from trading_copilot.calendar.service import CalendarService
+from trading_copilot.calendar.service import CalendarService, event_date
 from trading_copilot.calendar.models import (
     CalendarExportRequest,
     CalendarExportResponse,
@@ -170,8 +170,8 @@ def filter_events(events, from_date=None, to_date=None, importance=None):
         raise HTTPException(400, "from_date must not be after to_date")
     if importance and importance not in {"low", "medium", "high", "critical"}:
         raise HTTPException(400, "Invalid importance")
-    return [e for e in events if (not from_date or (e.scheduled_at or e.released_at) and event_time(e).date() >= from_date)
-            and (not to_date or (e.scheduled_at or e.released_at) and event_time(e).date() <= to_date)
+    return [e for e in events if (not from_date or event_date(e) and event_date(e) >= from_date)
+            and (not to_date or event_date(e) and event_date(e) <= to_date)
             and (not importance or e.importance.value == importance)]
 
 
@@ -355,10 +355,10 @@ async def answer_question(
 @app.get("/api/v1/stocks/{symbol}/answer")
 async def answer_question_get(
     symbol: str,
-    question: str = Query(...),
+    question: str = Query(..., min_length=1, max_length=2000),
 ) -> Answer:
     """Answer a specific question about a symbol."""
-    symbol = symbol.upper()
+    symbol = validate_symbol(symbol)
     request = AnswerRequest(symbol=symbol, question=question)
     return answer_engine.answer_question(request)
 
@@ -575,7 +575,7 @@ def get_scanner_status():
 
 # Term definition
 @app.get("/api/v1/terms/search")
-async def term_search(q: str = Query(..., min_length=2), limit: int = Query(10, ge=1, le=50)):
+async def term_search(q: str = Query(..., min_length=2, max_length=200), limit: int = Query(10, ge=1, le=50)):
     return get_term_service().search_terms(q)[:limit]
 
 
@@ -598,13 +598,22 @@ async def get_upcoming_events(
     """Get upcoming scheduled events within the next N days."""
     from datetime import timedelta
     now = datetime.now(timezone.utc)
-    cutoff = datetime.now(timezone.utc) + timedelta(days=days)
-    
-    events = event_store.upcoming_events(
-        from_date=datetime.now(timezone.utc),
-        to_date=cutoff,
-        limit=limit,
-    )
+    cutoff = now + timedelta(days=days)
+    # The store's instant-only query cannot represent date/session-only events.
+    # Read pages before filtering so metadata dates cannot disappear behind LIMIT.
+    events = []
+    for event_type in EventType:
+        offset = 0
+        while True:
+            page = event_store.events_by_type(event_type, limit=1000, offset=offset)
+            events.extend(e for e in page if e.status.value in {"scheduled", "updated"})
+            if len(page) < 1000:
+                break
+            offset += len(page)
+    events = filter_events(events, now.date(), cutoff.date())
+    events = [e for e in events if not e.scheduled_at or event_time(e) >= now]
+    events.sort(key=lambda e: (event_date(e), (e.scheduled_at or e.released_at).isoformat() if e.scheduled_at or e.released_at else ""))
+    events = events[:limit]
     return [e.model_dump() for e in events]
 
 
@@ -788,11 +797,11 @@ async def export_calendar(request: CalendarExportRequest) -> CalendarExportRespo
 @app.get("/api/v1/calendar/export")
 async def export_calendar_get(
     format: str = Query("ics", pattern="^ics$"),
-    event_types: Optional[str] = Query(None),
-    symbols: Optional[str] = Query(None),
+    event_types: Optional[str] = Query(None, max_length=3250),
+    symbols: Optional[str] = Query(None, max_length=550),
     from_date: Optional[datetime] = Query(None),
     to_date: Optional[datetime] = Query(None),
-    importance: Optional[str] = Query(None),
+    importance: Optional[str] = Query(None, max_length=850),
 ) -> CalendarExportResponse:
     """Export events to calendar format (.ics) via GET."""
     from trading_copilot.calendar.models import CalendarExportFormat, CalendarExportRequest
@@ -810,6 +819,38 @@ async def export_calendar_get(
 
 
 # --- Alerts ---
+
+def alert_observations(alert: Alert) -> dict:
+    """Bounded, completed-daily observations, with provider provenance intact."""
+    if len(alert.symbols) > 50:
+        raise HTTPException(400, "Manual evaluation supports at most 50 symbols")
+    if market_adapter is None:
+        return {}
+    observations = {}
+    for raw_symbol in dict.fromkeys(alert.symbols):
+        symbol = validate_symbol(raw_symbol)
+        if alert.alert_type.value == "quant_score":
+            quant = market_adapter.quant(symbol)
+            if quant.get("status") == "available" and quant.get("market_timestamp") and quant.get("source"):
+                observations[raw_symbol] = {**quant, "as_of": quant["market_timestamp"]}
+            continue
+        price = market_adapter.price(symbol)
+        if price.get("status") != "available" or not price.get("market_timestamp") or not price.get("source"):
+            continue
+        data = {**price, "as_of": price["market_timestamp"]}
+        if alert.condition.value in {"crosses_above", "crosses_below", "changes"}:
+            bars = market_adapter.bars(symbol, limit=3)
+            values = bars.get("bars", [])
+            if (bars.get("status") == "available" and len(values) >= 2
+                    and values[-1]["t"] == price["market_timestamp"]
+                    and values[-2]["t"] < values[-1]["t"]):
+                prior = values[-2]
+                data.update(previous_price=prior["c"], previous_volume=prior["v"],
+                            previous_as_of=prior["t"])
+                if len(values) >= 3 and values[-3]["c"]:
+                    data["previous_change_pct"] = (prior["c"] / values[-3]["c"] - 1) * 100
+        observations[raw_symbol] = data
+    return observations
 
 @app.post("/api/v1/alerts", response_model=Alert, status_code=201)
 async def create_alert(alert: AlertCreate) -> Alert:
@@ -867,9 +908,28 @@ async def deactivate_alert(alert_id: str) -> Alert:
 
 
 @app.post("/api/v1/alerts/test", response_model=AlertTestResponse)
-async def test_alert(request: AlertTestRequest) -> AlertTestResponse:
+def test_alert(request: AlertTestRequest) -> AlertTestResponse:
     """Test an alert against current data."""
-    return alert_service.test_alert(request)
+    alert = alert_service.get_alert(request.alert_id)
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    return alert_service.test_alert(request, alert_observations(alert))
+
+
+@app.post("/api/v1/alerts/{alert_id}/evaluate")
+def evaluate_alert(alert_id: str) -> dict:
+    """Explicit local evaluation of one alert; no scheduler or external delivery."""
+    alert = alert_service.get_alert(alert_id)
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    observations = alert_observations(alert)
+    result = alert_service.test_alert(AlertTestRequest(alert_id=alert_id), observations)
+    triggers = alert_service.evaluate_alerts(observations, alert_id=alert_id)
+    from datetime import timedelta
+    cooldown = bool(alert.last_triggered and datetime.now() < alert.last_triggered + timedelta(minutes=alert.cooldown_minutes))
+    return {**result.model_dump(), "status": "inactive" if not alert.is_active else "cooldown" if cooldown else result.status,
+            "triggers": [t.model_dump() for t in triggers], "delivery": "in_app_history_only",
+            "message": "Manual local evaluation only; no scheduling or external delivery."}
 
 
 # Alert Triggers

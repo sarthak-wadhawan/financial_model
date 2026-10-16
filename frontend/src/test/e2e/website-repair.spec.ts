@@ -18,6 +18,12 @@ test.beforeEach(async ({ page, request }) => {
   })
 })
 
+test.afterEach(async ({ page }) => {
+  // Let real forwarded requests finish before Playwright disposes the page.
+  // Do not ignore route errors: failures during a test remain test failures.
+  await page.unrouteAll({ behavior: 'wait' })
+})
+
 async function go(page: Page, path: string) {
   await page.goto(`${origin}${path}`)
   await expect(page.locator('h1').first()).toBeVisible()
@@ -106,7 +112,7 @@ test('watchlist UI create, notes, default update, reload persistence, remove and
   }
 })
 
-test('alert UI CRUD, active toggle persistence and non-mutating dry-run', async ({ page, request }, info) => {
+test('alert UI CRUD, side-effect-free dry-run, real manual evaluation/history/ack', async ({ page, request }, info) => {
   const name = `website-repair-alert-${info.project.name}-${Date.now()}`
   let id: string | undefined
   page.on('dialog', async dialog => { await dialog.accept() })
@@ -115,7 +121,7 @@ test('alert UI CRUD, active toggle persistence and non-mutating dry-run', async 
     await page.getByRole('button', { name: 'Create Alert', exact: true }).first().click()
     const dialog = page.getByRole('dialog')
     await dialog.getByLabel('Alert Name').fill(name)
-    await dialog.getByLabel('Threshold', { exact: true }).fill('200')
+    await dialog.getByLabel('Threshold', { exact: true }).fill('0.01')
     await dialog.getByPlaceholder(/AAPL, MSFT/).fill('AAPL')
     const created = page.waitForResponse(r => r.url().endsWith('/alerts') && r.request().method() === 'POST')
     await dialog.getByRole('button', { name: 'Create Alert', exact: true }).click()
@@ -148,6 +154,37 @@ test('alert UI CRUD, active toggle persistence and non-mutating dry-run', async 
     const after = await (await request.get(`${backend}/api/v1/alerts/${id}`)).json()
     expect(after.trigger_count).toBe(before.trigger_count)
     expect(after.last_triggered).toBe(before.last_triggered)
+    const evaluated = page.waitForResponse(r => r.url().endsWith(`/alerts/${id}/evaluate`) && r.request().method() === 'POST')
+    await card.getByRole('button', { name: 'Evaluate', exact: true }).click()
+    const manualResponse = await evaluated
+    expect(manualResponse.ok()).toBeTruthy()
+    const manual = await manualResponse.json()
+    expect(manual.delivery).toBe('in_app_history_only')
+    if (manual.status === 'unavailable') {
+      info.annotations.push({ type: 'external-provider-unavailable', description: 'Real evaluate exercised, but populated trigger/ack path NOT verified in this run; deterministic component/API coverage verifies populated path.' })
+      expect(manual.would_trigger).toBeNull()
+      expect(manual.triggers).toEqual([])
+      expect(await (await request.get(`${backend}/api/v1/alerts/${id}/triggers`)).json()).toEqual([])
+      await expect(page.getByText('Observations unavailable; no match can be determined.')).toBeVisible()
+    } else {
+      expect(manual.status).toBe('evaluated')
+      expect(manual.triggers).toHaveLength(1)
+      const trigger = manual.triggers[0]
+      expect(trigger.metadata.observation.source).toBeTruthy()
+      expect(trigger.metadata.observation.as_of).toBeTruthy()
+      await expect(page.getByText(/Observation source:/).first()).toContainText(trigger.metadata.observation.source)
+      await page.getByRole('button', { name: 'View trigger history' }).click()
+      const history = page.locator('.trigger-history-list .trigger-item').filter({ hasText: trigger.message })
+      await expect(history).toContainText(trigger.metadata.observation.as_of)
+      await history.getByRole('button', { name: 'Acknowledge', exact: true }).click()
+      await expect(history.getByText('Acknowledged', { exact: true })).toBeVisible()
+      const persisted = await (await request.get(`${backend}/api/v1/alerts/${id}/triggers`)).json()
+      expect(persisted).toEqual(expect.arrayContaining([expect.objectContaining({ id: trigger.id, acknowledged: true })]))
+      await page.reload()
+      await page.getByRole('button', { name: /^Triggered/ }).click()
+      await expect(history.getByText('Acknowledged', { exact: true })).toBeVisible()
+    }
+    await page.getByRole('button', { name: /^All \(/ }).click()
     await card.getByRole('button', { name: 'Delete', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
     await expect(card).toHaveCount(0)
@@ -155,6 +192,31 @@ test('alert UI CRUD, active toggle persistence and non-mutating dry-run', async 
   } finally {
     if (id) await cleanup(`alerts/${id}`)
   }
+})
+
+test('stock term survives mobile touch synthetic hover exit; desktop supports focus/link/Escape', async ({ page, isMobile }, info) => {
+  if (isMobile) await page.setViewportSize({ width: 375, height: 812 })
+  await go(page, '/stocks/AAPL')
+  const term = page.getByRole('button', { name: 'EPS', exact: true })
+  if (isMobile) await term.tap()
+  else await term.focus()
+  await expect(term).toHaveAttribute('aria-expanded', 'true')
+  const popover = page.getByRole('note')
+  await expect(popover).toBeVisible()
+  await expect(popover.getByRole('link', { name: /Learn more/ })).toHaveAttribute('href', /^https:\/\//)
+  await page.screenshot({ path: info.outputPath('stock-term-header-after.png'), fullPage: true })
+  if (isMobile) {
+    // The synthetic mouseleave used to undo a successful tap immediately.
+    await page.waitForTimeout(500)
+    await expect(term).toHaveAttribute('aria-expanded', 'true')
+    await popover.getByRole('button', { name: /Close EPS definition/ }).tap()
+  } else await term.press('Escape')
+  await expect(term).toHaveAttribute('aria-expanded', 'false')
+  const header = page.locator('.stock-header')
+  const headerBox = await header.boundingBox()
+  const tabsBox = await page.getByRole('tablist', { name: 'Stock sections' }).boundingBox()
+  expect(tabsBox!.width).toBeGreaterThan(headerBox!.width * 0.9)
+  await layout(page)
 })
 
 test('calendar UI downloads filtered valid ICS without direct database access', async ({ page }) => {

@@ -11,7 +11,10 @@ function mount() {
   render(<QueryClientProvider client={client}><MacroCalendarPage /></QueryClientProvider>)
 }
 async function loaded() { await screen.findByRole('heading', { name: 'Macro Calendar' }) }
-beforeEach(() => { vi.spyOn(api, 'getMacroEvents').mockResolvedValue([upcoming, released]) })
+beforeEach(() => {
+  vi.spyOn(api, 'getProviderCoverage').mockResolvedValue({ providers: {} })
+  vi.spyOn(api, 'getMacroEvents').mockResolvedValue([upcoming, released])
+})
 afterEach(() => vi.restoreAllMocks())
 
 describe('MacroCalendarPage full MarketEvent records', () => {

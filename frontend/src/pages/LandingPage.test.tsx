@@ -12,6 +12,7 @@ function mount() {
   render(<QueryClientProvider client={client}><MemoryRouter><LandingPage /></MemoryRouter></QueryClientProvider>)
 }
 beforeEach(() => {
+  vi.spyOn(api, 'getProviderCoverage').mockResolvedValue({ providers: { sec: { status: 'not_refreshed', retrieved_at: null, reason: 'Unit test fixture; no source refresh requested' } } })
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-14T15:00:00Z'))
   vi.spyOn(api, 'getMarketOverview').mockResolvedValue(market)
@@ -23,6 +24,13 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('LandingPage actual dashboard', () => {
+  it('keeps market snapshot ahead of provider coverage in document order', async () => {
+    mount()
+    expect(await screen.findByText('600.00')).toBeInTheDocument()
+    const sections = screen.getByRole('region', { name: 'Provider coverage' }).parentElement!.children
+    expect(sections[1]).toHaveClass('market-overview')
+    expect(sections[2]).toHaveAccessibleName('Provider coverage')
+  })
   it('renders research purpose and human decision boundary', () => {
     mount()
     expect(screen.getByRole('heading', { level: 1, name: 'Your research dashboard' })).toBeInTheDocument()

@@ -37,9 +37,9 @@ test.describe('Stock Page', () => {
 
   test('renders scenario analysis with Base/Bull/Bear cases', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /Scenario Analysis/i })).toBeVisible()
-    await expect(page.getByText(/BASE CASE/i)).toBeVisible()
-    await expect(page.getByText(/BULL CASE/i)).toBeVisible()
-    await expect(page.getByText(/BEAR CASE/i)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'BASE CASE', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'BULL CASE', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'BEAR CASE', exact: true })).toBeVisible()
   })
 
   test('renders what would change the view section', async ({ page }) => {

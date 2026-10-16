@@ -4,9 +4,9 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
 import type { Interpretation } from '../services/api'
 import { Badge } from '../components/ui'
-import { DataStatus, displayDate, displayNumber, record, SourceLink, Term, text } from '../components/ui/ResearchData'
+import { DataStatus, displayDate, displayNumber, EventTiming, ProviderCoverage, record, SourceLink, Term, text } from '../components/ui/ResearchData'
 
-const tabs = ['overview', 'earnings', 'events', 'news', 'insiders', 'leadership', 'filings', 'quant']
+const tabs = ['overview', 'earnings', 'events', 'news', 'management', 'insiders', 'leadership', 'filings', 'quant']
 
 export function StockPage() {
   const { symbol: routeSymbol } = useParams<{ symbol: string }>()
@@ -19,6 +19,7 @@ export function StockPage() {
     switch (activeTab) {
       case 'earnings': return api.getEarnings(symbol)
       case 'events': return api.getEvents(symbol, undefined, 50)
+      case 'management': return api.getEvents(symbol, undefined, 100)
       case 'news': return api.getNews(symbol, 20)
       case 'insiders': return api.getInsiders(symbol, 50)
       case 'leadership': return api.getLeadership(symbol)
@@ -39,6 +40,7 @@ export function StockPage() {
         if (next) { e.preventDefault(); setActiveTab(next); document.getElementById(`stock-tab-${next}`)?.focus() }
       }}>{tab.charAt(0).toUpperCase() + tab.slice(1)}</button>)}</nav>
     </div>
+    <ProviderCoverage key={symbol} symbol={symbol} />
     <div className="stock-content" id="stock-panel" role="tabpanel" aria-labelledby={`stock-tab-${activeTab}`} tabIndex={0}>
       {activeTab === 'overview' ? <>
         <DataStatus loading={interpretation.isLoading} error={interpretation.isError} empty={interpretation.isSuccess && !interpretation.data} label="Phase 9 interpretation" />
@@ -48,7 +50,7 @@ export function StockPage() {
       </> : <>
         <DataStatus loading={section.isLoading} error={section.isError} label={`${activeTab} data`} />
         {section.isError && <button className="btn btn-secondary" onClick={() => section.refetch()}>Retry {activeTab}</button>}
-        {section.isSuccess && (activeTab === 'leadership' ? <Leadership data={section.data} /> : activeTab === 'quant' ? <Quant data={section.data} /> : <EventList data={section.data} label={activeTab} />)}
+        {section.isSuccess && (activeTab === 'management' ? <Management data={section.data} /> : activeTab === 'leadership' ? <Leadership data={section.data} /> : activeTab === 'quant' ? <Quant data={section.data} /> : <EventList data={section.data} label={activeTab} />)}
       </>}
     </div>
   </div>
@@ -89,8 +91,16 @@ function EventList({ data, label }: { data: unknown; label: string }) {
   const events = Array.isArray(data) ? data : []
   return <div className={`tab-content ${label}-tab`}><h2>{label.charAt(0).toUpperCase() + label.slice(1)} evidence</h2><DataStatus empty={!events.length} label={`${label} records`} /><div className="events-list">{events.map((value, n) => {
     const event = record(value), metadata = record(event.metadata)
-    return <article key={text(event.event_id, String(n))} className="event-item"><div className="event-info"><h3>{text(event.title)}</h3><p>{text(event.description, 'Description unavailable')}</p><p className="event-meta">{text(event.event_type)} · {text(event.status)} · {text(event.importance)}</p><p>Scheduled date: {displayDate(typeof event.scheduled_at === 'string' ? event.scheduled_at : null)} · Publication date: {displayDate(typeof event.released_at === 'string' ? event.released_at : null)}</p><p className="event-source">Source: {text(event.source)}{/(test|fixture|mock|demo)/i.test(text(event.source)) ? ' — test/demo provenance, not live evidence' : ''}</p><SourceLink url={event.source_url} /><details><summary>Provider fields & provenance</summary><p>Event ID: {text(event.event_id)} · Source ID: {text(event.source_id)}</p><p>First seen: {displayDate(typeof event.first_seen_at === 'string' ? event.first_seen_at : null)} · Last seen: {displayDate(typeof event.last_seen_at === 'string' ? event.last_seen_at : null)}</p><dl>{Object.entries(metadata).map(([key, field]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{typeof field === 'object' && field !== null ? JSON.stringify(field) : text(field, 'Unknown')}</dd></div>)}</dl></details></div></article>
+    return <article key={text(event.event_id, String(n))} className="event-item"><div className="event-info"><h3>{text(event.title)}</h3><p>{text(event.description, 'Description unavailable')}</p><p className="event-meta">{text(event.event_type)} · {text(event.status)} · {text(event.importance)}</p><p>Event date: <EventTiming event={{ scheduled_at: typeof event.scheduled_at === 'string' ? event.scheduled_at : null, released_at: typeof event.released_at === 'string' ? event.released_at : null, metadata }} /></p><p className="event-source">Source: {text(event.source)}{/(test|fixture|mock|demo)/i.test(text(event.source)) ? ' — test/demo provenance, not live evidence' : ''}</p><SourceLink url={event.source_url} /><details><summary>Provider fields & provenance</summary><p>Event ID: {text(event.event_id)} · Source ID: {text(event.source_id)}</p><p>First seen: {displayDate(typeof event.first_seen_at === 'string' ? event.first_seen_at : null)} · Last seen: {displayDate(typeof event.last_seen_at === 'string' ? event.last_seen_at : null)}</p><dl>{Object.entries(metadata).map(([key, field]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{typeof field === 'object' && field !== null ? JSON.stringify(field) : text(field, 'Unknown')}</dd></div>)}</dl></details></div></article>
   })}</div></div>
+}
+
+function Management({ data }: { data: unknown }) {
+  const statements = (Array.isArray(data) ? data : []).flatMap(value => {
+    const event = record(value), metadata = record(event.metadata)
+    return (Array.isArray(metadata.management_statements) ? metadata.management_statements : []).map(value => ({ statement: record(value), event }))
+  })
+  return <section className="section management-tab"><h2>Management statements</h2><p>Attributed source statements, not independently verified outcomes. Showing extracted statements from up to 100 retained events; no statements does not mean management made none.</p><DataStatus empty={!statements.length} label="extracted management statements" />{statements.map(({ statement: s, event }, n) => <article className="evidence-item" key={text(s.statement_id, String(n))}><h3>{text(s.speaker, 'Speaker unavailable')} · {text(s.speaker_role, 'Role unavailable')}</h3><p>{text(s.statement)}</p><p>Category: {text(s.statement_type)} · Extraction: {text(s.extraction_method)} · Confidence: {confidence(s.confidence)}</p><h4>Exact source evidence</h4><blockquote>{text(record(s.evidence_span).text, 'Exact evidence unavailable')}</blockquote><p>Statement date: {displayDate(typeof s.event_date === 'string' ? s.event_date : null)} · Publication / filing timestamp (as supplied): {text(s.published_at)} · Retrieved: {text(s.retrieved_at)}</p><p>Source: {text(s.source_type, text(event.source))} · Document: {text(s.source_document_id)} · Event: {text(event.event_id)}</p><SourceLink url={s.source_url ?? event.source_url} /></article>)}</section>
 }
 
 function Leadership({ data }: { data: unknown }) {

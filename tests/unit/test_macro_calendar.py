@@ -74,17 +74,19 @@ class TestMacroCalendarProvider:
         implemented = [k for k, v in status.items() if v == "implemented"]
         pending = [k for k, v in status.items() if v == "provider_pending"]
 
-        # Core implemented events
+        # Core implemented events (official API or HTML parsing)
         assert "fomc_meeting" in implemented
         assert "cpi" in implemented
         assert "nfp" in implemented
         assert "unemployment_rate" in implemented
-        assert "pce" in implemented
-        assert "core_pce" in implemented
-        assert "gdp" in implemented
-        assert "retail_sales" in implemented
-        assert "housing_starts" in implemented
-        assert "building_permits" in implemented
+
+        # BEA/Census/ISM/Conference Board/UMich - no reliable free API, pending
+        assert "pce" in pending
+        assert "core_pce" in pending
+        assert "gdp" in pending
+        assert "retail_sales" in pending
+        assert "housing_starts" in pending
+        assert "building_permits" in pending
 
         # Pending events
         assert "ism_manufacturing" in pending
@@ -94,7 +96,7 @@ class TestMacroCalendarProvider:
         assert "industrial_production" in pending
 
     def test_fetch_fomc_schedule_from_fixture(self, provider):
-        """Test FOMC schedule fetching from fixture."""
+        """Test FOMC schedule fetching from fixture (demo mode only)."""
         # Test 2024 (has fixture)
         events_2024 = provider._load_fomc_fixture(2024)
         assert len(events_2024) == 8
@@ -104,8 +106,10 @@ class TestMacroCalendarProvider:
             assert "scheduled_at" in event
             assert "importance" in event
             assert "event_key" in event
-            assert event["event_key"].startswith("fomc_meeting_")
+            assert event["event_key"].startswith("fixture_fomc_meeting_")
             assert event["importance"] == EventImportance.CRITICAL
+            assert event["source"] == "fixture"
+            assert event["metadata"]["verification_state"] == "demo_fixture"
 
         dates = [e["metadata"]["meeting_start"] for e in events_2024]
         assert "2024-01-30" in dates
@@ -192,7 +196,8 @@ class TestMacroCalendarProvider:
             assert event.source == "federal_reserve"
 
     def test_refresh_idempotent(self, provider, event_store):
-        """Test that refresh is idempotent (second run = UNCHANGED)."""
+        """Test that refresh is idempotent (second run = UNCHANGED) in demo mode."""
+        provider.mode = "demo"
         counts1 = provider.refresh(years=[2024])
         counts2 = provider.refresh(years=[2024])
 
@@ -202,6 +207,7 @@ class TestMacroCalendarProvider:
 
     def test_get_scheduled_events(self, provider, event_store):
         """Test getting scheduled events in date range."""
+        provider.mode = "demo"
         provider.refresh(years=[2024])
 
         start = datetime(2024, 3, 1, tzinfo=timezone.utc)
@@ -212,11 +218,14 @@ class TestMacroCalendarProvider:
         # Should get March 20, May 1, June 12 meetings (3 total - fixture end dates)
         assert len(events) == 3
         for event in events:
-            assert event.scheduled_at >= start
-            assert event.scheduled_at <= end
+            # Date-only events have no scheduled_at; check metadata["event_date"]
+            assert event.metadata.get("event_date") is not None
+            event_date = date.fromisoformat(event.metadata["event_date"])
+            assert event_date >= start.date()
+            assert event_date <= end.date()
 
         # Verify specific dates (meeting end dates from fixture)
-        dates = sorted([e.scheduled_at.date() for e in events])
+        dates = sorted([date.fromisoformat(e.metadata["event_date"]) for e in events])
         assert dates == [date(2024, 3, 20), date(2024, 5, 1), date(2024, 6, 12)]
 
     def test_get_scheduled_events_by_importance(self, provider, event_store):
@@ -339,11 +348,11 @@ class TestMacroCalendarProvider:
         assert event.forecast is None  # No fabricated forecasts
 
     def test_fomc_minutes_event_type(self, provider):
-        """Test that FOMC minutes are a separate event type."""
+        """Test that FOMC minutes are a separate event type (provider pending)."""
         assert "fomc_minutes" in provider.MACRO_EVENTS
         minutes = provider.MACRO_EVENTS["fomc_minutes"]
         assert minutes.importance == EventImportance.HIGH
-        assert minutes.provider_status == "implemented"
+        assert minutes.provider_status == "provider_pending"
 
 
 class TestBLSIntegration:
@@ -400,7 +409,10 @@ class TestBLSIntegration:
         assert release is not None
         assert release["actual"] == "315.301"
         assert release["series_id"] == "CUSR0000SA0"
-        assert release["release_date"] == date(2026, 9, 1)
+        # Reference month ≠ release date; release_date and released_at are None
+        assert release["release_date"] is None
+        assert release["released_at"] is None
+        assert release["observation_period"] == "2026-09"
 
 
 if __name__ == "__main__":

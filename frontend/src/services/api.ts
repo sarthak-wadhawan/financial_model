@@ -62,7 +62,11 @@ class ApiClient {
   }
 
   async refreshMarketData(symbols: string[]) {
-    return this.post<{ status: string; symbols: string[]; state: Record<string, unknown> }>('/market/refresh', { symbols })
+    return this.post<{ status: string; symbols: string[]; state: Record<string, unknown> }>('/market/refresh', { symbols }, { timeout: 300000 })
+  }
+
+  async getProviderCoverage() {
+    return this.get<{ providers: Record<string, unknown> }>('/health/detailed')
   }
 
   // Symbols
@@ -258,6 +262,10 @@ class ApiClient {
 
   async testAlert(request: AlertTestRequest) {
     return this.post<AlertTestResponse>('/alerts/test', request)
+  }
+
+  async evaluateAlert(alertId: string) {
+    return this.post<AlertEvaluationResponse>(`/alerts/${alertId}/evaluate`)
   }
 
   async getAlertTriggers(alertId: string, limit?: number, unacknowledgedOnly?: boolean) {
@@ -534,6 +542,7 @@ export interface QuantCandidate {
 }
 
 export interface MacroEventResponse {
+  metadata?: Record<string, unknown>
   event_id: string
   title: string
   event_type: string
@@ -714,8 +723,14 @@ export interface AlertTestRequest {
 }
 
 export interface AlertTestResponse {
-  would_trigger: boolean
+  status?: string
+  would_trigger: boolean | null
   symbols_checked: string[]
   current_values: Record<string, unknown>
   message?: string
+}
+
+export interface AlertEvaluationResponse extends AlertTestResponse {
+  triggers: AlertTrigger[]
+  delivery: 'in_app_history_only'
 }

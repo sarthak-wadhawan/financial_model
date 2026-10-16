@@ -99,7 +99,9 @@ class WebsiteDataAdapter:
                     status = "stale" if timestamp and now - timestamp > timedelta(days=5) else "available"
                     reason = None
 
-                result.update(self._meta(status, reason, now.isoformat(), timestamp.isoformat() if timestamp else None))
+                provenance = getattr(self.provider, "last_retrieval_metadata", {}).get(symbol, {})
+                result.update(self._meta(status, reason, provenance.get("retrieved_at"), timestamp.isoformat() if timestamp else None))
+                result["source_url"] = provenance.get("source_url", self.source_url)
             except Exception:
                 # Never serialize exception text: upstream requests can contain credentials.
                 result.update(self._meta("provider_error", "Market provider request failed", now.isoformat()))
@@ -141,18 +143,20 @@ class WebsiteDataAdapter:
                 # Use get_daily_bars_with_status to get per-symbol status and upstream retrieval time
                 if hasattr(self.provider, "get_daily_bars_with_status"):
                     fetched, statuses = self.provider.get_daily_bars_with_status(symbols, start, now)
-                    upstream_retrieved_at = now.isoformat()  # Provider's retrieval time
                 else:
                     fetched = self.provider.get_daily_bars(symbols, start, now)
                     statuses = {s: "available" if fetched.get(s) else "empty" for s in symbols}
-                    upstream_retrieved_at = now.isoformat()
+                provenance = dict(getattr(self.provider, "last_retrieval_metadata", {}))
+                failed = [s for s in symbols if statuses.get(s) == "provider_error"]
 
                 market = {s: sorted([b for b in fetched.get(s, []) if start <= b.timestamp <= now and b.timestamp.date() < now.date()], key=lambda b: b.timestamp) for s in symbols}
                 benchmark = market.get(self.config.market.benchmark, [])
-                if hasattr(self.provider, "get_benchmark_bars"):
+                if not hasattr(self.provider, "get_daily_bars_with_status") and hasattr(self.provider, "get_benchmark_bars"):
                     benchmark = sorted([b for b in self.provider.get_benchmark_bars(self.config.market.benchmark, start, now) if start <= b.timestamp <= now and b.timestamp.date() < now.date()], key=lambda b: b.timestamp)
                 if len(benchmark) < 220:
-                    self._scan_status, self._scan_reason = "unavailable", "Benchmark unavailable; relative-return scores not calculated"
+                    self._scan_status = "provider_error" if self.config.market.benchmark in failed else "partial" if failed else "unavailable"
+                    self._scan_reason = "Benchmark unavailable; relative-return scores not calculated"
+                    self._candidates = []
                     self._scanned_at = now
                     return []
                 benchmark_dates = {b.timestamp.date() for b in benchmark}
@@ -165,9 +169,10 @@ class WebsiteDataAdapter:
                     price=by_symbol[s.symbol].price, avg_dollar_volume_20d=by_symbol[s.symbol].avg_dollar_volume_20d,
                     calculated_at=now.isoformat(), market_timestamp=market[s.symbol][-1].timestamp.isoformat(),
                     source=self.source, mode=self.mode,
-                    source_url=self.source_url, upstream_retrieved_at=upstream_retrieved_at) for i, s in enumerate(scores)]
-                self._scan_status = "stale" if any(now-market[s.symbol][-1].timestamp > timedelta(days=5) for s in scores) else "available" if scores else "empty"
-                self._scan_reason = None if scores else "No eligible symbols with sufficient completed daily history"
+                    source_url=provenance.get(s.symbol, {}).get("source_url", self.source_url),
+                    upstream_retrieved_at=provenance.get(s.symbol, {}).get("retrieved_at")) for i, s in enumerate(scores)]
+                self._scan_status = ("partial" if scores else "provider_error") if failed else "stale" if any(now-market[s.symbol][-1].timestamp > timedelta(days=5) for s in scores) else "available" if scores else "empty"
+                self._scan_reason = "Some market provider requests failed" if failed else None if scores else "No eligible symbols with sufficient completed daily history"
                 self._scanned_at = now
             except Exception:
                 self._scan_status, self._scan_reason = "provider_error", "Scanner market request failed"
@@ -175,7 +180,11 @@ class WebsiteDataAdapter:
             return self._candidates[:n]
 
     def status(self):
+        timestamps = [candidate["market_timestamp"] for candidate in self._candidates
+                      if candidate.get("source") == self.source and candidate.get("mode") == self.mode
+                      and candidate.get("market_timestamp")]
         return dict(status=self._scan_status, reason=self._scan_reason, source=self.source, mode=self.mode,
+                    market_timestamp=max(timestamps, key=lambda value: datetime.fromisoformat(value.replace("Z", "+00:00"))) if timestamps else None,
                     calculated_at=self._scanned_at.isoformat() if self._scanned_at else None, universe_size=len(self.symbols))
 
     def quant(self, symbol):

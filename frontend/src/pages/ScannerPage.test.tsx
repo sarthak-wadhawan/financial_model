@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.spyOn(api, 'getMarketOverview').mockResolvedValue({ timestamp: '2026-10-14', snapshot_time: '2026-10-14', mode: 'demo', source: 'test-fixture', source_url: null, reason: null, market_data_status: 'available', quant_scanner_status: 'available', market_status: 'unknown', symbols_tracked: 2, indices: [], top_gainers: [], top_losers: [], most_active: [] } satisfies MarketOverviewResponse)
   vi.spyOn(api, 'getScannerStatus').mockResolvedValue({ status: 'available', reason: null, mode: 'demo', source: 'test-fixture', calculated_at: '2026-10-14', market_timestamp: '2026-10-13', universe_size: 2 })
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('ScannerPage actual provider rankings', () => {
   it('renders deterministic research purpose and labelled result selector', () => {
@@ -29,8 +29,8 @@ describe('ScannerPage actual provider rankings', () => {
     mount()
     expect(await screen.findByText('unknown')).toBeInTheDocument()
     expect(screen.getByText('Symbols tracked').parentElement).toHaveTextContent('2')
+    expect(await screen.findByText(/Source: test-fixture · Market date: 2026-10-13/)).toBeInTheDocument()
     expect(screen.getByText('Calculation date').parentElement).toHaveTextContent('2026-10-14')
-    expect(screen.getByText(/Source: test-fixture · Market date: 2026-10-13/)).toBeInTheDocument()
   })
   it('renders exact component headers and backend rank/zero values', async () => {
     mount()
@@ -73,5 +73,36 @@ describe('ScannerPage actual provider rankings', () => {
     mount()
     expect(await screen.findByText(/Provider not configured/)).toBeInTheDocument()
     expect(await screen.findByText('No scanner candidates from the connected provider available.')).toBeInTheDocument()
+  })
+
+  it('waits for populated scan completion before reading previously unrun status', async () => {
+    let complete!: (data: QuantCandidate[]) => void
+    let ran = false
+    vi.mocked(api.getQuantScannerTop).mockImplementation(() => new Promise(resolve => { complete = data => { ran = true; resolve(data) } }))
+    vi.mocked(api.getScannerStatus).mockImplementation(async () => ({ status: ran ? 'available' : 'unavailable', reason: ran ? null : 'Scanner has not run', source: 'test-fixture', mode: 'demo', calculated_at: ran ? '2026-10-14' : null, market_timestamp: ran ? '2026-10-13' : null, universe_size: 2 }))
+    mount()
+    expect(api.getScannerStatus).not.toHaveBeenCalled()
+    await act(async () => { complete([candidate]) })
+    expect(await screen.findByText(/Status: available.*Market date: 2026-10-13/)).toBeInTheDocument()
+    expect(screen.queryByText(/Scanner has not run/)).not.toBeInTheDocument()
+    expect(api.getScannerStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes status after Refresh results and rejects a late older status response', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-15T12:00:00Z'))
+    let oldStatus!: (value: Awaited<ReturnType<typeof api.getScannerStatus>>) => void
+    vi.mocked(api.getScannerStatus).mockImplementationOnce(() => new Promise(resolve => { oldStatus = resolve }))
+      .mockResolvedValue({ status: 'available', reason: null, source: 'test-fixture', mode: 'demo', calculated_at: '2026-10-15', market_timestamp: '2026-10-14', universe_size: 2 })
+    mount()
+    await waitFor(() => expect(api.getScannerStatus).toHaveBeenCalledTimes(1))
+    vi.setSystemTime(new Date('2026-10-15T12:01:00Z'))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh results' }))
+    expect(await screen.findByText(/Status: available.*Market date: 2026-10-14/)).toBeInTheDocument()
+    expect(api.getQuantScannerTop).toHaveBeenCalledTimes(2)
+    expect(api.getScannerStatus).toHaveBeenCalledTimes(2)
+    await act(async () => { oldStatus({ status: 'unavailable', reason: 'Scanner has not run', source: 'test-fixture', mode: 'demo', calculated_at: null, universe_size: 2 }) })
+    expect(screen.queryByText(/Scanner has not run/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Status: available.*Market date: 2026-10-14/)).toBeInTheDocument()
   })
 })

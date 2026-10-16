@@ -4,7 +4,8 @@ import { format } from 'date-fns'
 import { api } from '../services/api'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { Badge, Modal, ConfirmDialog } from '../components/ui'
-import type { Alert, AlertCreate, AlertUpdate, AlertTestResponse } from '../services/api'
+import { record, text } from '../components/ui/ResearchData'
+import type { Alert, AlertCreate, AlertUpdate, AlertTestResponse, AlertEvaluationResponse } from '../services/api'
 
 const ALERT_TYPES = [
   { value: 'price', label: 'Price' },
@@ -39,6 +40,7 @@ export function AlertsPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'active' | 'triggered'>('all')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<AlertTestResponse | null>(null)
+  const [evaluation, setEvaluation] = useState<AlertEvaluationResponse | null>(null)
 
   const [newAlert, setNewAlert] = useState<AlertCreate>({
     name: '',
@@ -103,6 +105,11 @@ export function AlertsPage() {
     mutationFn: (request: { alert_id: string }) => api.testAlert(request),
     onSuccess: setTestResult,
   })
+  const evaluateMutation = useMutation({ mutationFn: (id: string) => api.evaluateAlert(id), onSuccess: result => {
+    setEvaluation(result)
+    queryClient.invalidateQueries({ queryKey: ['alerts'] })
+    queryClient.invalidateQueries({ queryKey: ['alertTriggers'] })
+  } })
   const ackMutation = useMutation({ mutationFn: (id: string) => api.acknowledgeAlertTrigger(id), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['alertTriggers'] }) })
   const openCreate = () => {
     setEditingId(null)
@@ -144,9 +151,10 @@ export function AlertsPage() {
           Create Alert
         </button>
       </div>
-      <p className="form-hint">Rules and recorded trigger history are stored locally. Automatic scheduling, email and webhook delivery are not operational. Crossing/change conditions require prior observations.</p>
-      {(alertsError || createMutation.isError || updateMutation.isError || deleteMutation.isError || testMutation.isError || ackMutation.isError) && <p className="error-message" role="alert">Unable to load or save alert data. Please retry; no success is assumed.</p>}
+      <p className="form-hint">Rules and recorded trigger history are stored locally. Evaluate checks one rule now against completed daily observations and records matches in In-App history only; it is not live monitoring. Automatic scheduling, email and webhook delivery are not operational. Crossing/change conditions require prior observations.</p>
+      {(alertsError || createMutation.isError || updateMutation.isError || deleteMutation.isError || testMutation.isError || evaluateMutation.isError || ackMutation.isError) && <p className="error-message" role="alert">Unable to load or save alert data. Please retry; no success is assumed.</p>}
       {testResult && <section className="info-section" role="status"><h2>Dry-run result</h2><p>{testResult.message}</p><p>{testResult.would_trigger === true ? 'Condition matched.' : testResult.would_trigger === false ? 'Condition did not match.' : 'Cannot determine whether the condition matches.'}</p><details><summary>Observations checked ({testResult.symbols_checked.length})</summary><pre>{JSON.stringify(testResult.current_values, null, 2)}</pre></details></section>}
+      {evaluation && <section className="info-section" role="status"><h2>Manual evaluation result</h2><p>Status: {evaluation.status} · Recorded triggers: {evaluation.triggers.length}</p><p>{evaluation.message}</p><p>{evaluation.would_trigger === null ? 'Observations unavailable; no match can be determined.' : evaluation.would_trigger ? 'Condition matched; storage also depends on active state and cooldown.' : 'Condition did not match.'}</p><Observations values={evaluation.current_values} /><button className="btn btn-secondary" onClick={() => setActiveTab('triggered')}>View trigger history</button></section>}
 
       <div className="alerts-tabs">
         <button
@@ -212,8 +220,9 @@ export function AlertsPage() {
                     disabled={testMutation.isPending}
                     onClick={() => { setTestResult(null); testMutation.mutate({ alert_id: alert.id }) }}
                   >
-                     Dry-run
-                  </button>
+                      Dry-run
+                   </button>
+                  <button className="btn btn-sm btn-primary" disabled={evaluateMutation.isPending} onClick={() => { setEvaluation(null); evaluateMutation.mutate(alert.id) }}>Evaluate</button>
                   <button
                     className="btn btn-sm btn-ghost"
                     onClick={() => setShowDeleteConfirm(alert.id)}
@@ -257,7 +266,7 @@ export function AlertsPage() {
 
       {activeTab === 'triggered' && (
         <div className="trigger-history-section">
-          <h3>Recent Triggers</h3>
+          <h3>Recent Triggers — last 24 hours (up to 50)</h3>
           {triggersLoading ? <LoadingSpinner /> : triggersError ? <p className="error-message" role="alert">Trigger history unavailable. Please retry.</p> : recentTriggers?.length === 0 ? (
             <p className="muted">No recent triggers</p>
           ) : (
@@ -269,6 +278,7 @@ export function AlertsPage() {
                     <Badge variant={(trigger.severity === 'critical' ? 'error' : trigger.severity) as 'default' | 'success' | 'error' | 'warning' | 'info' | 'primary' | 'secondary'}>{trigger.severity}</Badge>
                   </div>
                   <p className="trigger-message">{trigger.message}</p>
+                  <Observations values={{ [trigger.symbol]: record(trigger.metadata).observation }} />
                   <div className="trigger-meta">
                     <span>Value: {trigger.value?.toFixed(2) ?? 'Unavailable'}</span>
                     <span>Threshold: {trigger.threshold?.toFixed(2) ?? 'Not applicable'}</span>
@@ -464,3 +474,7 @@ export function AlertsPage() {
 }
 
 export default AlertsPage
+
+function Observations({ values }: { values: Record<string, unknown> }) {
+  return <div className="observation-provenance">{Object.entries(values).map(([symbol, value]) => { const observation = record(value); return <p key={symbol}>{symbol} · Observation source: {text(observation.source)} · As of (market observation): {text(observation.as_of)}{observation.previous_as_of ? ` · Prior observation: ${text(observation.previous_as_of)}` : ''}</p> })}</div>
+}

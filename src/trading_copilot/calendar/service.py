@@ -17,6 +17,18 @@ from trading_copilot.calendar.models import (
 from trading_copilot.calendar.security import require_property_value, safe_calendar_url
 
 
+def event_date(event) -> Optional[date]:
+    """Known calendar date only; never promote a date/session to an instant."""
+    timestamp = event.scheduled_at or event.released_at
+    if timestamp:
+        return timestamp.date()
+    value = (event.metadata or {}).get("event_date")
+    try:
+        return date.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
 class CalendarService:
     """Calendar export service."""
 
@@ -86,12 +98,12 @@ class CalendarService:
         if request.from_date:
             all_events = [
                 e for e in all_events
-                if (e.scheduled_at or e.released_at) and (e.scheduled_at or e.released_at).date() >= bound_date(request.from_date)
+                if event_date(e) and event_date(e) >= bound_date(request.from_date)
             ]
         if request.to_date:
             all_events = [
                 e for e in all_events
-                if (e.scheduled_at or e.released_at) and (e.scheduled_at or e.released_at).date() <= bound_date(request.to_date)
+                if event_date(e) and event_date(e) <= bound_date(request.to_date)
             ]
 
         # Filter by importance
@@ -99,13 +111,13 @@ class CalendarService:
             all_events = [e for e in all_events if e.importance.value in [i.lower() for i in request.importance]]
 
         # Sort by scheduled date
-        all_events.sort(key=lambda e: (e.scheduled_at or e.released_at).date() if (e.scheduled_at or e.released_at) else date.max)
+        all_events.sort(key=lambda e: event_date(e) or date.max)
 
         return all_events
 
     def _to_calendar_event(self, event) -> Optional[CalendarEvent]:
         """Convert MarketEvent to CalendarEvent with proper time semantics."""
-        dtstart = event.scheduled_at or event.released_at
+        dtstart = event.scheduled_at or event.released_at or event_date(event)
         if dtstart is None:
             return None
         # An untrusted identity must not be repaired into a different UID. Omit
@@ -120,7 +132,7 @@ class CalendarService:
         # Precision is explicit, never inferred from an hour. Legacy providers may
         # encode sessions or estimated macro hours as timestamps. Conservatively
         # export a date unless source-supported precision is explicitly recorded.
-        has_exact_time = precision in ("exact", "exact_time", "datetime")
+        has_exact_time = isinstance(dtstart, datetime) and precision in ("exact", "exact_time", "datetime")
         if session or precision in ("date", "date_only", "session", "unknown", "filing_accepted"):
             has_exact_time = False
         if has_exact_time and dtstart.tzinfo is None:
@@ -135,6 +147,7 @@ class CalendarService:
 
         # Build description with session semantics preserved
         description_parts = []
+        description_parts.append(f"Event status: {event.status.value}")
         if event.description:
             description_parts.append(event.description)
         if event.actual is not None:
@@ -243,10 +256,8 @@ class CalendarService:
             raise ValueError("Exact calendar timestamps require a timezone")
         return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    def _format_date(self, dt: datetime) -> str:
+    def _format_date(self, dt: datetime | date) -> str:
         """Format date for iCalendar (DATE format YYYYMMDD)."""
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=None)
         return dt.strftime("%Y%m%d")
 
     def _escape_ics(self, text: str) -> str:

@@ -4,25 +4,170 @@ Only external read operations. Local writes go through EventStore revision upser
 Unsafe fixture/default-time paths are deliberately not used in real mode.
 """
 from datetime import datetime, timedelta, timezone
+import hashlib
+import re
 from trading_copilot.models.events import MarketEvent, EventType, EventStatus
 from trading_copilot.providers.filing_provider import SECFilingProvider
 from trading_copilot.providers.earnings_intelligence import EarningsIntelligenceProvider
 from trading_copilot.providers.macro_calendar import MacroCalendarProvider
 from trading_copilot.providers.news_rss_provider import NewsRSSProvider
+from trading_copilot.providers.ir_release_provider import IRReleaseProvider
+from trading_copilot.providers.sec_exhibit_provider import SECExhibitProvider
+from trading_copilot.providers.management_extractor import (
+    ManagementExtractor, ATTRIBUTION_PATTERNS, QUOTE_PATTERNS, linked_quote_speaker,
+)
+from trading_copilot.providers.evidence_claims import EvidenceClaimGenerator
+from trading_copilot.models.news import VerificationStatus, NewsDocument, NewsSourceType
+
+
+def _exact_feed_timestamp(supplied, name):
+    """A normalized tuple alone proves neither source time nor timezone.
+
+    Accept explicit ISO/RFC clock+zone forms only; date-only, timezone-unknown,
+    or unsupported date forms are deliberately omitted, never made midnight UTC.
+    """
+    raw, parsed = supplied.get(name), supplied.get(name + "_parsed")
+    if not isinstance(raw, str) or not parsed or not re.search(
+        r"(?:T|\s)\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?\s*"
+        r"(?:Z|[+-]\d{2}:?\d{2}|GMT|UTC|UT|EST|EDT|CST|CDT|MST|MDT|PST|PDT)$",
+        raw.strip(), re.IGNORECASE,
+    ):
+        return None
+    try:
+        return datetime(*parsed[:6], tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
 
 
 class DatedRSSProvider(NewsRSSProvider):
     def _parse_entry(self, feed_name, entry, from_date, to_date):
-        # Upstream currently substitutes now() when no publication date exists.
-        if not any(entry.get(k) for k in ["published_parsed", "updated_parsed", "created_parsed"]):
+        # Only actual publication evidence is eligible. FeedParserDict aliases
+        # and update/create timestamps cannot establish original publication.
+        supplied = dict(entry.items())
+        published = _exact_feed_timestamp(supplied, "published")
+        if published is None:
             return None
-        return super()._parse_entry(feed_name, entry, from_date, to_date)
+        if not from_date <= published.date() <= to_date:
+            return None
+        content = entry.get("content")
+        raw = content[0].get("value", "") if isinstance(content, list) and content else entry.get("summary", entry.get("description", ""))
+        body = self._clean_html(raw)
+        link = entry.get("link") or entry.get("id", "")
+        if len(body.strip()) < 50 or not link.startswith(("https://", "http://")):
+            return None
+        title = entry.get("title", "Financial News").strip()
+        digest = hashlib.sha256(body.encode()).hexdigest()
+        # Reuse Phase 8 cleaning/symbol extraction and document model, avoiding
+        # its undefined `feed` publisher lookup as well as date fallback.
+        return NewsDocument(document_id=f"news_rss:{feed_name}:{digest[:16]}",
+            symbol=self._extract_symbol(title + " " + body), headline=title, body=body,
+            summary=body[:500], publisher=feed_name, published_at=published,
+            retrieved_at=datetime.now(timezone.utc), source_url=link,
+            source_type=NewsSourceType.NEWS_RSS, provider_id=f"news_rss:{feed_name}",
+            author=entry.get("author"), content_hash=digest,
+            metadata={"feed_name":feed_name, "feed_url":self.feeds[feed_name],
+                      "entry_id":entry.get("id", link), "timestamp_basis":"published_at"},
+            dedup_key=f"news:{feed_name}:{published.date()}:{digest[:16]}")
+
+
+class DatedIRProvider(IRReleaseProvider):
+    def _parse_entry(self, symbol, entry, from_date, to_date):
+        # FeedParserDict.get/__getitem__ can alias absent updated_parsed to
+        # published_parsed. Only underlying supplied keys establish provenance.
+        supplied = dict(entry.items())
+        timestamps = {name: value for name, key in [("published_at", "published"),
+                                                   ("source_updated_at", "updated"),
+                                                   ("source_created_at", "created")]
+                      if (value := _exact_feed_timestamp(supplied, key)) is not None}
+        basis = next((name for name in ["published_at", "source_updated_at", "source_created_at"] if name in timestamps), None)
+        parsed = timestamps.get(basis)
+        if not parsed:
+            return None
+        # NewsDocument requires a datetime. A non-publication placeholder is
+        # explicitly tagged and never becomes released_at or claim publication.
+        published = parsed
+        if not from_date <= published.date() <= to_date:
+            return None
+        # Phase 8's parser references an undefined feed_url; keep the bounded
+        # live parser here, reusing its feed fetch/HTML cleaning and source model.
+        content = entry.get("content")
+        raw = content[0].get("value", "") if isinstance(content, list) and content else entry.get("summary", entry.get("description", ""))
+        body = self._clean_html(raw)
+        link = entry.get("link", "")
+        if not link.startswith(("https://", "http://")) or len(body.strip()) < 50:
+            return None
+        identity = str(entry.get("id") or link)
+        return NewsDocument(document_id="ir_release:" + symbol + ":" + hashlib.sha256(identity.encode()).hexdigest()[:24],
+            symbol=symbol, headline=entry.get("title", "").strip(), body=body,
+            publisher=symbol, published_at=published, retrieved_at=datetime.now(timezone.utc),
+            source_url=link, source_type=NewsSourceType.COMPANY_IR, provider_id="company_ir_rss",
+            content_hash=hashlib.sha256(body.encode()).hexdigest(),
+            metadata={"feed_url": self.feeds[symbol], "entry_id": identity,
+                      "timestamp_basis": basis, "publication_time_unknown": basis != "published_at",
+                      **{key: value.isoformat() for key, value in timestamps.items() if key != "published_at"}})
+
+
+class WebsiteSECExhibitProvider(SECExhibitProvider):
+    """A filing date is not an exhibit's exact announcement/publication time."""
+
+    def _extract_exhibits(self, symbol, cik, filing_row):
+        documents = super()._extract_exhibits(symbol, cik, filing_row)
+        accepted = filing_row.get("acceptanceDateTime")
+        for document in documents:
+            document.metadata.update(event_date=filing_row["filingDate"],
+                                     time_precision="date", publication_time_unknown=True)
+            if accepted:
+                timestamp = datetime.fromisoformat(accepted.replace("Z", "+00:00"))
+                if timestamp.tzinfo is not None:
+                    document.published_at = timestamp
+                    document.metadata.update(filing_accepted_at=timestamp.isoformat(),
+                                             timestamp_basis="filing_accepted_at", time_precision="exact")
+        return documents
+
+
+class EvidenceValidator:
+    """Verify extraction against this exact document, not the headline's existence.
+
+    Verification establishes attribution/text support, not the truth of a speaker's
+    forecast. Keep these as attributed statements rather than observed facts.
+    """
+
+    @staticmethod
+    def supports(statement, document):
+        span = statement.evidence_span
+        supported = bool(span and span.text and document.symbol and
+                    statement.symbol == document.symbol and statement.speaker != "UNKNOWN" and
+                    statement.source_document_id == document.document_id and
+                    statement.source_url == document.source_url and
+                    document.body[span.start:span.end] == span.text and
+                    statement.statement == span.text)
+        if not supported:
+            return False
+        # Quote-only evidence must be linked to the same adjacent speaker.
+        if statement.statement_id.startswith("quote:"):
+            return (span.start > 0 and span.end < len(document.body) and
+                    document.body[span.start-1] in "\"'" and
+                    document.body[span.end] == document.body[span.start-1] and
+                    linked_quote_speaker(document.body, span.start-1, span.end+1) == statement.speaker)
+        # Forward evidence must start with its own attribution and contain no
+        # other speaker or quote attributed to somebody else outside the span.
+        attributions = [m for pattern in ATTRIBUTION_PATTERNS for m in re.finditer(pattern, span.text)]
+        if not any(m.start() == 0 and m.group(1).strip() == statement.speaker for m in attributions):
+            return False
+        if any(m.group(1).strip() != statement.speaker for m in attributions):
+            return False
+        for pattern in QUOTE_PATTERNS:
+            for quote in re.finditer(pattern, document.body):
+                if span.start <= quote.start() < span.end:
+                    if quote.end() > span.end or linked_quote_speaker(document.body, quote.start(), quote.end()) != statement.speaker:
+                        return False
+        return True
 
 
 class WebsiteSourceAdapter:
     def __init__(self, store, settings):
         self.store, self.settings = store, settings
-        self.state = {p: {"status": "not_refreshed", "retrieved_at": None, "reason": "Provider refresh not requested"} for p in ["sec", "earnings", "macro", "news"]}
+        self.state = {p: {"status": "not_refreshed", "retrieved_at": None, "reason": "Provider refresh not requested"} for p in ["sec", "earnings", "macro", "news", "ir_releases", "sec_exhibits"]}
         self.state.update({p: {"status":"unavailable", "retrieved_at":None, "reason":reason} for p, reason in {
             "bea":"Existing BEA response parser is incomplete; no live observations available",
             "census":"Existing Census response parser is incomplete; no live observations available",
@@ -32,8 +177,12 @@ class WebsiteSourceAdapter:
         try:
             counts = operation()
             errors = counts.get("ERROR", 0)
-            self.state[name] = {"status": "partial" if errors else "available" if counts.get("NEW", 0) + counts.get("UNCHANGED", 0) + counts.get("CHANGED", 0) else "empty",
+            total = counts.get("NEW", 0) + counts.get("UNCHANGED", 0) + counts.get("CHANGED", 0)
+            self.state[name] = {"status": ("partial" if total else "provider_error") if errors else "available" if total else "empty",
                                 "counts": counts, "retrieved_at": datetime.now(timezone.utc).isoformat(), "reason": "Some source requests failed" if errors else None}
+            if counts.get("UNAVAILABLE"):
+                self.state[name].update(status="partial" if total or errors else "unavailable",
+                                        reason="No configured IR feed for one or more requested symbols")
         except Exception:
             self.state[name] = {"status": "provider_error", "retrieved_at": datetime.now(timezone.utc).isoformat(), "reason": "Source provider request failed"}
 
@@ -48,10 +197,13 @@ class WebsiteSourceAdapter:
                         provider.close()
                 self._run(name, operation)
         else:
-            for name in ["sec", "earnings"]:
+            for name in ["sec", "earnings", "sec_exhibits"]:
                 self.state[name] = {"status":"unavailable", "reason":"SEC operator identity missing", "retrieved_at":None}
         self._run("macro", self._macro)
         self._run("news", lambda: self._news(symbols))
+        self._run("ir_releases", lambda: self._releases(symbols, "ir_releases"))
+        if self.settings.sec_user_agent:
+            self._run("sec_exhibits", lambda: self._releases(symbols, "sec_exhibits"))
         return self.state
 
     def _macro(self):
@@ -91,12 +243,73 @@ class WebsiteSourceAdapter:
 
     def _news(self, symbols):
         provider = DatedRSSProvider(timeout=10)
-        documents = provider.fetch_news(symbols, from_date=(datetime.now(timezone.utc)-timedelta(days=7)).date())
-        counts = {"NEW":0,"CHANGED":0,"UNCHANGED":0,"ERROR":len(provider.errors)}
+        try:
+            documents = provider.fetch_news(symbols, from_date=(datetime.now(timezone.utc)-timedelta(days=7)).date())
+            return self._documents(documents, "news_rss", len(provider.errors))
+        finally:
+            provider.close()
+
+    def _releases(self, symbols, name):
+        provider = (WebsiteSECExhibitProvider(user_agent=self.settings.sec_user_agent) if name == "sec_exhibits"
+                    else DatedIRProvider(timeout=10))
+        try:
+            documents = provider.fetch_company_releases(symbols,
+                from_date=(datetime.now(timezone.utc)-timedelta(days=45 if name == "sec_exhibits" else 7)).date(),
+                to_date=datetime.now(timezone.utc).date())
+            counts = self._documents(documents, name, len(provider.errors))
+            if name == "ir_releases" and any(s not in provider.feeds for s in symbols):
+                counts["UNAVAILABLE"] = sum(s not in provider.feeds for s in symbols)
+            return counts
+        finally:
+            provider.close()
+
+    def _documents(self, documents, source_type, errors=0):
+        counts = {"NEW":0,"CHANGED":0,"UNCHANGED":0,"ERROR":errors}
+        extractor, generator = ManagementExtractor(), EvidenceClaimGenerator()
         for document in documents:
+            metadata = {"document":document.model_dump(mode="json"), "retrieved_at":document.retrieved_at.isoformat(),
+                        "claim_type":"attributed_raw_content", "source_type":source_type,
+                        "management_statements":[], "evidence_claims":[]}
+            is_exhibit = source_type == "sec_exhibits"
+            publication_unknown = document.metadata.get("publication_time_unknown", False)
+            timestamp_known = bool(document.metadata.get("filing_accepted_at")) if is_exhibit else not publication_unknown
+            if publication_unknown and not is_exhibit:
+                metadata.update(timestamp_basis=document.metadata.get("timestamp_basis"), time_precision="unknown",
+                                source_updated_at=document.metadata.get("source_updated_at"),
+                                source_created_at=document.metadata.get("source_created_at"))
+                metadata["document"]["published_at"] = None
+            if is_exhibit:
+                metadata.update(event_date=document.metadata.get("event_date", document.published_at.date().isoformat()),
+                                filing_accepted_at=document.metadata.get("filing_accepted_at"),
+                                time_precision="date", announcement_released_at=None)
+                # Preserve original provider representation without endorsing its midnight as publication.
+                metadata["document"]["published_at"] = None
+                metadata["document"]["metadata"]["publication_time_unknown"] = True
+            if timestamp_known:
+                for statement in extractor.extract_statements(document):
+                    if not EvidenceValidator.supports(statement, document):
+                        continue
+                    # Publication/filing acceptance does not establish when a
+                    # statement was originally made.
+                    statement.event_date = None
+                    claim = generator.generate_from_statement(statement)
+                    statement_payload = statement.model_dump(mode="json")
+                    statement_payload["timestamp_basis"] = "filing_accepted_at" if is_exhibit else "published_at"
+                    metadata["management_statements"].append(statement_payload)
+                    if claim:
+                        claim.verification_status = VerificationStatus.VERIFIED
+                        payload = claim.model_dump(mode="json")
+                        payload["retrieved_at"] = document.retrieved_at.isoformat()
+                        payload["timestamp_basis"] = "filing_accepted_at" if is_exhibit else "published_at"
+                        payload["verification_scope"] = "exact_text_and_attribution_not_forecast_truth"
+                        metadata["evidence_claims"].append(payload)
             event = MarketEvent(event_type=EventType.NEWS, symbol=document.symbol, title=document.headline,
-                description=document.body, released_at=document.published_at, status=EventStatus.RELEASED,
+                description=document.body, released_at=None if is_exhibit or publication_unknown else document.published_at,
+                status=EventStatus.UNKNOWN if publication_unknown and not is_exhibit else EventStatus.RELEASED,
                 source=document.publisher, source_url=document.source_url, source_id=document.document_id,
-                metadata={"document":document.model_dump(mode="json"), "retrieved_at":document.retrieved_at.isoformat(), "claim_type":"attributed_statement"})
+                metadata=metadata)
+            existing = self.store.get_event_by_source_id(document.document_id, EventType.NEWS)
+            if existing:
+                event.metadata["_identity_key"] = existing.metadata["_identity_key"]
             counts[self.store.upsert_event(event).value] += 1
         return counts

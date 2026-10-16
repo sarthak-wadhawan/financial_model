@@ -36,6 +36,17 @@ test.describe('Landing Page', () => {
     await expect(page.getByRole('heading', { name: /Market snapshot/i })).toBeVisible()
   })
 
+  test('keeps the market snapshot before provider coverage', async ({ page }) => {
+    const market = page.getByRole('heading', { name: 'Market snapshot', exact: true })
+    const coverage = page.getByRole('region', { name: 'Provider coverage', exact: true })
+    await expect(market).toBeVisible()
+    await expect(coverage).toBeVisible()
+    expect(await market.evaluate((element, after) => !!(element.compareDocumentPosition(after as Node) & Node.DOCUMENT_POSITION_FOLLOWING), await coverage.elementHandle())).toBe(true)
+    const marketBox = await market.boundingBox()
+    const coverageBox = await coverage.boundingBox()
+    expect(marketBox!.y).toBeLessThan(coverageBox!.y)
+  })
+
   test('renders macro releases & upcoming events section', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /Macro: releases & upcoming events/i })).toBeVisible()
   })

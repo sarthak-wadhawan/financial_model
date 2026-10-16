@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { api } from '../services/api'
 import type { Interpretation } from '../services/api'
 import { LandingPage } from './LandingPage'
@@ -13,6 +13,7 @@ function renderPage(page: React.ReactNode, route = '/') {
   return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[route]}><Routes><Route path={route.includes('/stocks/') ? '/stocks/:symbol' : '/'} element={page} /></Routes></MemoryRouter></QueryClientProvider>)
 }
 afterEach(() => vi.restoreAllMocks())
+beforeEach(() => { vi.spyOn(api, 'getProviderCoverage').mockResolvedValue({ providers: {} }) })
 
 describe('repair research pages', () => {
   it('isolates dashboard failures and never calls them empty data', async () => {

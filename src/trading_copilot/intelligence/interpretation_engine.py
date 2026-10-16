@@ -169,9 +169,6 @@ class InterpretationEngine:
                 if (claim.symbol.upper() == symbol and claim.verification_status == VerificationStatus.VERIFIED
                         and claim.evidence_span and claim.evidence_span.text):
                     claims.append(claim.model_dump(mode="json"))
-            if event.event_type == EventType.NEWS and event.source_url:
-                claims.append({"claim": event.title, "source": event.source, "source_url": event.source_url,
-                               "claim_type": "reported_headline", "event_id": event.event_id})
         return claims
 
     def _determine_company_impact(self, symbol: str, all_evidence: dict) -> tuple:
@@ -350,7 +347,7 @@ class InterpretationEngine:
         return CompanyImpact(
             direction=direction,
             magnitude=magnitude,
-            horizon=horizon if horizon != TimeHorizon.UNKNOWN else TimeHorizon.MEDIUM_TERM,
+            horizon=horizon,
             reasons=reasons,
             evidence_refs=evidence_refs,
             confidence=confidence,
@@ -506,13 +503,7 @@ class InterpretationEngine:
         elif company_impact.direction == ImpactDirection.NEGATIVE and bias == StockBias.BULLISH:
             reasons.append("Divergence: negative fundamentals but positive market reaction")
 
-        # Default values if still unknown
-        if bias == StockBias.UNKNOWN:
-            bias = StockBias.NEUTRAL
-        if magnitude == ImpactMagnitude.UNKNOWN:
-            magnitude = ImpactMagnitude.LOW
-        if horizon == TimeHorizon.UNKNOWN:
-            horizon = TimeHorizon.SHORT_TERM
+        # Missing directional/magnitude/horizon evidence remains unknown.
 
         confidence = min(0.3 + len(reasons) * 0.1, 0.85)
 
@@ -551,7 +542,7 @@ class InterpretationEngine:
                         base_reasons.append(f"EPS miss creates near-term overhang")
                 except ValueError:
                     base_reasons.append("Earnings result mixed")
-        base_reasons.append("Current trajectory continues absent new catalysts")
+        base_reasons.append("If subsequent verified evidence indicates an unchanged operating trajectory")
 
         # Bull case
         if all_evidence.get("earnings", {}).get("guidance_direction") == "raised":
@@ -562,7 +553,7 @@ class InterpretationEngine:
             bull_reasons.append("Rate cuts provide valuation support")
             bull_conditions.append("Fed continues easing cycle")
         bull_reasons.append("Positive earnings momentum continues")
-        bull_conditions.append("Earnings momentum sustains")
+        bull_conditions.append("If future verified results show improving earnings momentum")
 
         # Bear case
         if all_evidence.get("earnings", {}).get("guidance_direction") == "lowered":
@@ -584,26 +575,26 @@ class InterpretationEngine:
 
         base_case = Scenario(
             scenario_type=ScenarioType.BASE,
-            description="Current trajectory continues; valuation reflects current expectations",
+            description="Uncalibrated conditional base case: if operating conditions remain unchanged",
             required_conditions=base_reasons,
             evidence_refs=[],
-            probability_band="40-60%",
+            probability_band=None,
         )
 
         bull_case = Scenario(
             scenario_type=ScenarioType.BULL,
-            description="Positive fundamentals and supportive macro drive multiple expansion",
+            description="Uncalibrated conditional bull case: if fundamentals improve and macro conditions support valuations",
             required_conditions=bull_conditions,
             evidence_refs=[],
-            probability_band="20-30%",
+            probability_band=None,
         )
 
         bear_case = Scenario(
             scenario_type=ScenarioType.BEAR,
-            description="Fundamental deterioration or macro headwinds compress multiple",
+            description="Uncalibrated conditional bear case: if fundamentals deteriorate or macro headwinds pressure valuations",
             required_conditions=bear_conditions,
             evidence_refs=[],
-            probability_band="15-25%",
+            probability_band=None,
         )
 
         return base_case, bull_case, bear_case
@@ -715,7 +706,7 @@ class InterpretationEngine:
             parts.append(f"Reported evidence: {claim['claim']}")
 
         if not parts:
-            return "No material new events in period"
+            return "Insufficient validated evidence to determine what changed in this period"
 
         return "; ".join(parts)
 
@@ -728,7 +719,7 @@ class InterpretationEngine:
         elif company_impact.direction == ImpactDirection.NEGATIVE:
             parts.append("Fundamental business weakening")
         else:
-            parts.append("Fundamental business stable")
+            parts.append("Insufficient directional evidence to assess fundamental business change")
 
         if company_impact.magnitude == ImpactMagnitude.HIGH:
             parts.append("with high conviction")
@@ -791,7 +782,7 @@ class InterpretationEngine:
                 pass
 
         if not parts:
-            parts.append("No material catalyst in current period; monitoring for next catalyst")
+            parts.append("Available evidence is insufficient to assess catalyst significance; missing evidence does not imply no catalyst")
 
         return " ".join(parts)
 

@@ -138,7 +138,7 @@ class AlertService:
 
     # Alert Evaluation (to be called by scheduler)
 
-    def evaluate_alerts(self, current_data: dict) -> List[AlertTrigger]:
+    def evaluate_alerts(self, current_data: dict, alert_id: Optional[str] = None) -> List[AlertTrigger]:
         """
         Evaluate all active alerts against current market data.
         
@@ -148,11 +148,12 @@ class AlertService:
         Returns:
             List of triggered alerts
         """
-        active_alerts = self.store.get_all(active_only=True)
+        active_alerts = ([self.store.get(alert_id)] if alert_id is not None
+                         else self.store.get_all(active_only=True))
         triggered = []
 
         for alert in active_alerts:
-            if not alert.is_active:
+            if alert is None or not alert.is_active:
                 continue
 
             # Check cooldown

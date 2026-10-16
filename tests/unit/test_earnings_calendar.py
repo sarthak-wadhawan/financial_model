@@ -52,7 +52,8 @@ class TestEarningsCalendarProvider:
         assert sources == []
 
     def test_load_fixtures(self, provider):
-        """Test loading earnings events from fixtures."""
+        """Test loading earnings events from fixtures (demo mode)."""
+        provider.mode = "demo"
         events = provider._load_fixtures(
             symbols=None,
             from_date=date(2026, 10, 1),
@@ -62,14 +63,16 @@ class TestEarningsCalendarProvider:
         assert len(events) > 0
         for event in events:
             assert "symbol" in event
-            assert "scheduled_at" in event
+            assert "event_date" in event["metadata"]
             assert "title" in event
             assert event["importance"] == EventImportance.HIGH
             assert event["status"] == EventStatus.SCHEDULED
             assert event["source"] == "fixture"
+            assert event["metadata"]["verification_state"] == "demo_fixture"
 
     def test_load_fixtures_with_symbol_filter(self, provider):
         """Test loading fixtures with symbol filter."""
+        provider.mode = "demo"
         events = provider._load_fixtures(
             symbols=["AAPL"],
             from_date=date(2026, 10, 1),
@@ -81,6 +84,7 @@ class TestEarningsCalendarProvider:
 
     def test_load_fixtures_with_date_filter(self, provider):
         """Test loading fixtures with date filter."""
+        provider.mode = "demo"
         events = provider._load_fixtures(
             symbols=None,
             from_date=date(2026, 10, 1),
@@ -88,16 +92,17 @@ class TestEarningsCalendarProvider:
         )
 
         for event in events:
-            assert event["scheduled_at"].date() >= date(2026, 10, 1)
-            assert event["scheduled_at"].date() <= date(2026, 10, 31)
+            event_date = date.fromisoformat(event["metadata"]["event_date"])
+            assert event_date >= date(2026, 10, 1)
+            assert event_date <= date(2026, 10, 31)
 
     def test_create_market_event(self, provider):
-        """Test creating MarketEvent from earnings data."""
+        """Test creating MarketEvent from earnings data (session-based, no exact time)."""
         event_data = {
             "symbol": "AAPL",
             "title": "AAPL Q4 FY2026 Earnings",
             "description": "Estimated EPS: 1.55 USD",
-            "scheduled_at": datetime(2026, 10, 28, 21, 0, tzinfo=timezone.utc),
+            "scheduled_at": None,  # Session-based, not exact
             "released_at": None,
             "importance": EventImportance.HIGH,
             "status": EventStatus.SCHEDULED,
@@ -111,6 +116,9 @@ class TestEarningsCalendarProvider:
                 "estimate": "1.55",
                 "currency": "USD",
                 "time": "amc",
+                "session": "amc",
+                "event_date": "2026-10-28",
+                "scheduled_time_precision": "session",
             },
         }
 
@@ -119,7 +127,7 @@ class TestEarningsCalendarProvider:
         assert event.event_type == EventType.EARNINGS
         assert event.symbol == "AAPL"
         assert event.title == "AAPL Q4 FY2026 Earnings"
-        assert event.scheduled_at == datetime(2026, 10, 28, 21, 0, tzinfo=timezone.utc)
+        assert event.scheduled_at is None  # No fabricated exact time
         assert event.released_at is None
         assert event.importance == EventImportance.HIGH
         assert event.status == EventStatus.SCHEDULED
@@ -127,10 +135,13 @@ class TestEarningsCalendarProvider:
         assert event.source_id == "fixture_earnings_AAPL_2026-10-28"
         assert event.metadata["event_subtype"] == "earnings"
         assert event.metadata["fiscal_quarter"] == "4"
-        assert event.metadata["time"] == "amc"
+        assert event.metadata["session"] == "amc"
+        assert event.metadata["event_date"] == "2026-10-28"
+        assert event.metadata["scheduled_time_precision"] == "session"
 
     def test_refresh_from_fixtures(self, provider, event_store):
-        """Test refresh loads events from fixtures."""
+        """Test refresh loads events from fixtures in demo mode."""
+        provider.mode = "demo"
         counts = provider.refresh(
             symbols=["AAPL", "MSFT"],
             from_date=date(2026, 10, 1),
@@ -149,9 +160,11 @@ class TestEarningsCalendarProvider:
             assert event.symbol in ("AAPL", "MSFT")
             assert event.importance == EventImportance.HIGH
             assert event.status == EventStatus.SCHEDULED
+            assert event.scheduled_at is None  # Session-based, no exact time
 
     def test_refresh_idempotent(self, provider, event_store):
-        """Test that refresh is idempotent."""
+        """Test that refresh is idempotent in demo mode."""
+        provider.mode = "demo"
         counts1 = provider.refresh(
             symbols=["AAPL"],
             from_date=date(2026, 10, 1),
@@ -168,7 +181,8 @@ class TestEarningsCalendarProvider:
         assert counts2["NEW"] == 0
 
     def test_get_upcoming_earnings(self, provider, event_store):
-        """Test getting upcoming earnings events."""
+        """Test getting upcoming earnings events in demo mode."""
+        provider.mode = "demo"
         provider.refresh(
             symbols=["AAPL", "MSFT", "GOOGL"],
             from_date=date(2026, 10, 1),
@@ -181,11 +195,14 @@ class TestEarningsCalendarProvider:
         assert len(upcoming) >= 1
         for event in upcoming:
             assert event.event_type == EventType.EARNINGS
-            assert event.scheduled_at is not None
-            assert event.scheduled_at >= datetime.now(timezone.utc)
+            # Date-only events have metadata["event_date"]
+            assert event.metadata.get("event_date") is not None
+            event_date = date.fromisoformat(event.metadata["event_date"])
+            assert event_date >= date.today()
 
     def test_get_upcoming_earnings_with_symbol(self, provider, event_store):
-        """Test getting upcoming earnings for specific symbol."""
+        """Test getting upcoming earnings for specific symbol in demo mode."""
+        provider.mode = "demo"
         provider.refresh(
             symbols=["AAPL", "MSFT"],
             from_date=date(2026, 10, 1),
@@ -199,76 +216,53 @@ class TestEarningsCalendarProvider:
             assert event.symbol == "AAPL"
 
     def test_time_parsing_bmo(self, provider):
-        """Test BMO (before market open) time parsing."""
-        # Fixture has time="bmo" which should be 13:30 UTC (8:30 AM ET)
+        """Test BMO (before market open) session parsing - no fake exact time."""
+        provider.mode = "demo"
         events = provider._load_fixtures(
             symbols=["AAPL"],
             from_date=date(2026, 10, 1),
             to_date=date(2026, 11, 30),
         )
         for event in events:
-            if event["metadata"]["time"] == "bmo":
-                assert event["scheduled_at"].hour == 13
-                assert event["scheduled_at"].minute == 30
+            if event["metadata"]["session"] == "bmo":
+                # No fabricated exact timestamp; session semantics only
+                assert event["scheduled_at"] is None
+                assert event["metadata"]["scheduled_time_precision"] == "session"
+                assert event["metadata"]["event_date"] == "2026-10-28"  # AAPL fixture date
 
     def test_time_parsing_amc(self, provider):
-        """Test AMC (after market close) time parsing."""
+        """Test AMC (after market close) session parsing - no fake exact time."""
+        provider.mode = "demo"
         events = provider._load_fixtures(
             symbols=["MSFT"],
             from_date=date(2026, 10, 1),
             to_date=date(2026, 11, 30),
         )
         for event in events:
-            if event["metadata"]["time"] == "amc":
-                assert event["scheduled_at"].hour == 21
-                assert event["scheduled_at"].minute == 0
+            if event["metadata"]["session"] == "amc":
+                # No fabricated exact timestamp; session semantics only
+                assert event["scheduled_at"] is None
+                assert event["metadata"]["scheduled_time_precision"] == "session"
+                assert event["metadata"]["event_date"] == "2026-10-29"  # MSFT fixture date
 
-    def test_unknown_time_defaults_to_midnight(self, provider):
-        """Test unknown time defaults to midnight UTC."""
-        # Create a temporary provider with custom fixture data
-        custom_fixture = [{
-            "symbol": "TEST",
-            "date": "2026-11-01",
-            "time": "unknown",
-            "quarter": "1",
-            "year": "2026",
-            "estimate": "1.00",
-            "currency": "USD",
-            "description": "Test",
-            "source_url": "test",
-        }]
-        
-        # Test the parsing logic directly
-        from datetime import time
-        event_data = {
-            "symbol": "TEST",
-            "date": "2026-11-01",
-            "time": "unknown",
-            "quarter": "1",
-            "year": "2026",
-            "estimate": "1.00",
-            "currency": "USD",
-            "description": "Test",
-            "source_url": "test",
-        }
-        
-        # Use the provider's internal logic to parse this
-        report_date = datetime.strptime(event_data["date"], "%Y-%m-%d").date()
-        time_str = event_data.get("time", "unknown")
-        
-        if time_str == "bmo":
-            scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=13, minute=30, tzinfo=timezone.utc)
-        elif time_str == "amc":
-            scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(hour=21, minute=0, tzinfo=timezone.utc)
-        else:
-            scheduled_time = datetime.combine(report_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-        
-        assert scheduled_time.hour == 0
-        assert scheduled_time.minute == 0
-        assert scheduled_time.date() == date(2026, 11, 1)
+    def test_unknown_time_is_date_precision_not_midnight(self, provider):
+        """Test unknown time gets date precision, not fabricated midnight."""
+        provider.mode = "demo"
+        events = provider._load_fixtures(
+            symbols=None,
+            from_date=date(2026, 10, 1),
+            to_date=date(2026, 11, 30),
+        )
+        for event in events:
+            if event["metadata"]["session"] == "unknown":
+                # No fabricated exact timestamp; date precision only
+                assert event["scheduled_at"] is None
+                assert event["metadata"]["scheduled_time_precision"] == "date"
+                assert event["metadata"]["event_date"] is not None
 
     def test_earnings_event_metadata(self, provider, event_store):
         """Test that earnings event metadata is preserved."""
+        provider.mode = "demo"
         provider.refresh(
             symbols=["AAPL"],
             from_date=date(2026, 10, 1),
@@ -285,7 +279,9 @@ class TestEarningsCalendarProvider:
         assert "fiscal_year" in event.metadata
         assert "estimate" in event.metadata
         assert "currency" in event.metadata
-        assert "time" in event.metadata
+        assert "session" in event.metadata
+        assert "event_date" in event.metadata
+        assert "scheduled_time_precision" in event.metadata
 
     def test_api_methods_exist(self, provider):
         """Test that API parsing methods exist."""

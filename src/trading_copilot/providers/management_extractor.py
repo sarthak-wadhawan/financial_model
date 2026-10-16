@@ -56,6 +56,25 @@ def _sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+def linked_quote_speaker(text: str, start: int, end: int) -> str:
+    """Require adjacent attribution, never an arbitrary speaker within 300 chars.
+
+    start/end include the quote delimiters. Conflicting adjacent speakers are
+    ambiguous and deliberately rejected.
+    """
+    speakers = set()
+    before, after = text[:start], text[end:]
+    for index, pattern in enumerate(ATTRIBUTION_PATTERNS):
+        for match in re.finditer(pattern, before):
+            if re.fullmatch(r"[\s,:]*", before[match.end():]):
+                speakers.add(match.group(1).strip())
+        # A new role-led/"according to" sentence is not trailing attribution.
+        match = re.match(r"[\s,]*" + pattern, after) if index < 2 else None
+        if match:
+            speakers.add(match.group(1).strip())
+    return next(iter(speakers)) if len(speakers) == 1 else "UNKNOWN"
+
+
 class ManagementExtractor:
     """
     Deterministic extraction of management statements from documents.
@@ -189,7 +208,17 @@ class ManagementExtractor:
         else:
             statement_end = len(document.body)
 
-        statement_text = document.body[statement_start:statement_end].strip()
+        # A trailing attribution can own a quote BEFORE its name. Do not give
+        # that quote to the previous speaker just because its name comes later.
+        for pattern in QUOTE_PATTERNS:
+            for quote in re.finditer(pattern, document.body):
+                if statement_start <= quote.start() < statement_end:
+                    if linked_quote_speaker(document.body, quote.start(), quote.end()) != speaker_name:
+                        statement_end = min(statement_end, quote.start())
+        # A forward attribution does not license all subsequent prose.
+        sentence_end = re.search(r'[.!?](?:["\u201d])?(?=\s|$)', document.body[statement_start:statement_end])
+        if sentence_end:
+            statement_end = statement_start + sentence_end.end()
         
         # Also include the attribution part for context
         full_statement = document.body[match_start:statement_end].strip()
@@ -239,27 +268,14 @@ class ManagementExtractor:
                 if len(quote_text) < self.min_length or len(quote_text) > self.max_length:
                     continue
 
-                # Look for attribution near the quote
-                speaker_name = "UNKNOWN"
-                speaker_role = None
-
-                # Check text before quote
-                before_text = document.body[max(0, match.start() - 300):match.start()]
-                for pattern in ATTRIBUTION_PATTERNS:
-                    attr_match = re.search(pattern, before_text)
-                    if attr_match:
-                        speaker_name = attr_match.group(1).strip()
-                        break
-
-                # Check text after quote
+                # Exact adjacency is required; distant attribution can refer to
+                # another quote or a different sentence/person.
+                speaker_name = linked_quote_speaker(document.body, match.start(), match.end())
                 if speaker_name == "UNKNOWN":
-                    after_text = document.body[match.end():match.end() + 300]
-                    for pattern in ATTRIBUTION_PATTERNS:
-                        attr_match = re.search(pattern, after_text)
-                        if attr_match:
-                            speaker_name = attr_match.group(1).strip()
-                            break
-
+                    continue
+                speaker_role = None
+                before_text = document.body[max(0, match.start() - 60):match.start()]
+                after_text = document.body[match.end():match.end() + 60]
                 speaker_role = detect_speaker_role(before_text + " " + after_text)
                 if not speaker_role and document.symbol:
                     known = self.known_executives.get(document.symbol, {})
