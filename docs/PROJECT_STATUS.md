@@ -12,6 +12,8 @@ Subsequent chart recheck: **chart leaf PASS**, real320/390/1440 light/dark, prio
 
 Provider-only filing-category leaf independentlyPASS:94 tests +209 quota/cap combinations; source preserved at `561cb62a`. Website/per-symbol API wiring remains open. Bars source/provider/securityPASS awaits runtime restart; earnings source implementationFAIL fixes active with genuineofficial403 livegate limits. FullUX2 remains open.
 
+Latest: **UX2c bars-range leaf PASS** after controlled owned-stack restart: independent16 direct/proxy GETs, parent actual5Y Chromium1254 bars/headerindependence/zeroerrors; prior67+4 provider and23+15 security evidence remains separate. Earnings financial/security rechecks still found four material defects (headline/body conflict, supersession replay, credential URL fallback, incomplete fetch deadline); targeted fixes and separate projection audit active. NofullUX2 or finalregression/mainmerge claim.
+
 ## Current — R1 normal-runtime integration verified (2026-10-16)
 
 The prior functional-completion claim at `c9b77fbd` was withdrawn. Actual user testing exposed Vite3000 serving without a FastAPI8000 listener: local watchlists failed through the proxy as500 while direct8000 refused connections. R1 repairs normal startup rather than blaming providers: **`npm --prefix frontend run dev`** now owns both servers, gates Vite on initialized JSON backend/database health, tolerates transient probe failures and refuses unknown occupied ports. Backend Settings loads root `.env` without manual credential exports.

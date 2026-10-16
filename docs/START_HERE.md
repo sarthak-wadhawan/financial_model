@@ -8,7 +8,7 @@
 
 UX progress: UX1 shell/navigation/search/theme PASS; **UX2a SEC identity leaf PASS** after provider/security review and clean-restarted normal-runtime verification for all5 target stocks; **interactive chart leaf PASS** after real desktop/mobile light/dark recheck. Full UX2/UX3 and UX4–UX9 remain incomplete. Resume `WORK_CHECKPOINT.md`, not the earlier R1 HOLD instruction below. No main merge or Phase12.
 
-Additional source progress: filing-category provider leaf independentlyPASS; website coverage wiring is still open. Bars source/securityPASS awaits runtime; earnings ingestion has unresolved audit findings and official403 livegate failures. Do not treat these as fullUX2 acceptance.
+Additional progress: **bars-range UX2c leaf PASS** after source/security and restarted direct/proxy/browser gates; filing-category provider leaf PASS but website coverage wiring is still open. Earnings ingestion has unresolved financial/security audit findings and official403 livegate failures. Do not treat these as fullUX2 acceptance.
 
 Publish only the focused R1 source/test/docs changes if not yet committed/pushed, then **HOLD: no Phase12 or further phase is authorized**. Leave the verified normal stack running for the user's retest unless explicitly asked to stop. Preserve existing database records, generated-file churn and unrelated work; database ingestion/runtime mutations are not source changes to commit.
 
