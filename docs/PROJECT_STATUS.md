@@ -1,5 +1,9 @@
 # Project Status
 
+## Active — Phase≤11 UX overhaul
+
+User authorized the KISS stock-first website overhaul after R1. Dedicated branch `work/trading-copilot-ux`; portable checkpoint `WORK_CHECKPOINT.md`; bounded UX0–UX9 DAG appended without replacing earlier work. Planning only at initial checkpoint; no implementation or new PASS claim yet. Preserve uncommitted database/generated/user work. No Phase12 and no main merge before final verification.
+
 ## Current — R1 normal-runtime integration verified (2026-10-16)
 
 The prior functional-completion claim at `c9b77fbd` was withdrawn. Actual user testing exposed Vite3000 serving without a FastAPI8000 listener: local watchlists failed through the proxy as500 while direct8000 refused connections. R1 repairs normal startup rather than blaming providers: **`npm --prefix frontend run dev`** now owns both servers, gates Vite on initialized JSON backend/database health, tolerates transient probe failures and refuses unknown occupied ports. Backend Settings loads root `.env` without manual credential exports.

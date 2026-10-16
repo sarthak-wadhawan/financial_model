@@ -4,6 +4,8 @@
 
 ## NEXT ACTION
 
+**New user authorization: Phase≤11 UX/data-completeness overhaul on `work/trading-copilot-ux`.** Resume `WORK_CHECKPOINT.md` and the final UX extension of `current_task_graph.md`; R1 below remains the baseline, not an overhaul completion claim. Initial plan/checkpoint must be pushed before implementation; checkpoint each verified node. No Phase12; no main merge until final gates.
+
 Publish only the focused R1 source/test/docs changes if not yet committed/pushed, then **HOLD: no Phase12 or further phase is authorized**. Leave the verified normal stack running for the user's retest unless explicitly asked to stop. Preserve existing database records, generated-file churn and unrelated work; database ingestion/runtime mutations are not source changes to commit.
 
 ### Local startup
