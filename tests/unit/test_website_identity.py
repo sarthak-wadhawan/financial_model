@@ -1,6 +1,7 @@
 """UX2a identity contract. All HTTP is injected/offline; no operator DB changes."""
 from datetime import datetime, timezone
-from threading import Event
+from threading import Event, Thread
+import hashlib
 import json
 import time
 
@@ -88,12 +89,13 @@ def test_legacy_normalized_cache_is_not_current_exchange_verification(tmp_path):
     (tmp_path / "company_tickers.json").write_text(json.dumps({
         "mapping": {"AAPL": {"cik": "0000320193", "title": "Old observed name"}},
         "fetched_at": observed,
+        "source_url": SEC_TICKERS_URL,
     }))
     service = OfficialIdentitySnapshot(cache_dir=tmp_path)
     identity = service.identity("AAPL")
     assert identity["status"] == "stale"
     assert identity["exchange"] is None
-    assert datetime.fromisoformat(identity["retrieved_at"]).timestamp() == observed
+    assert datetime.fromisoformat(identity["retrieved_at"]).timestamp() == pytest.approx(observed, rel=0, abs=1e-6)
     assert identity["snapshot_id"] is None
 
 
@@ -246,3 +248,163 @@ def test_additive_stock_detail_contract(tmp_path, monkeypatch, exchange_map):
         assert data["price"] is None
         assert isinstance(data["events"], list)
         assert data["price_data"]["status"] == "empty"
+
+
+def signed(data):
+    data.pop("snapshot_id", None)
+    data["snapshot_id"] = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+    return data
+
+
+@pytest.mark.parametrize("content", [[], None, 42, "bad", {},
+    {"raw": []}, {"raw": None}, {"raw": {"tickers": None}}])
+def test_malformed_submissions_never_break_identity(tmp_path, exchange_map, content):
+    service = OfficialIdentitySnapshot(cache_dir=tmp_path, transport=Transport(exchange_map))
+    service.refresh()
+    (tmp_path / "submissions_0000320193.json").write_text(json.dumps(content))
+    identity = service.identity("AAPL")
+    assert identity["status"] == "available"
+    assert identity["industry"] is None
+
+
+@pytest.mark.parametrize("field,value", [("tickers", None), ("tickers", "AAPL"),
+    ("sic", []), ("sic", True), ("sicDescription", {}),
+    ("cik", []), ("retrieved_at", "2099-01-01T00:00:00+00:00"),
+    ("retrieved_at", "2026-10-01T12:30:00"), ("source_url", "file:///private/secret")])
+def test_signed_bad_submissions_fields_are_unknown(tmp_path, exchange_map, field, value):
+    service = OfficialIdentitySnapshot(cache_dir=tmp_path, transport=Transport(exchange_map))
+    service.refresh()
+    service.record_submissions({"cik": 320193, "tickers": ["AAPL"],
+        "sic": "3571", "sicDescription": "Electronic Computers"}, "2026-10-01T12:30:00+00:00")
+    path = tmp_path / "submissions_0000320193.json"
+    data = json.loads(path.read_text())
+    (data["raw"] if field in {"tickers", "sic", "sicDescription", "cik"} else data)[field] = value
+    path.write_text(json.dumps(signed(data)))
+    assert service.identity("AAPL")["industry"] is None
+
+
+@pytest.mark.parametrize("failure", [False, True])
+@pytest.mark.parametrize("explicit_first", [False, True])
+def test_explicit_refresh_and_read_share_one_job(tmp_path, exchange_map, failure, explicit_first):
+    entered, release = Event(), Event()
+
+    class Blocked(Transport):
+        def get(self, url):
+            self.calls.append(url)
+            entered.set()
+            assert release.wait(3)
+            if failure:
+                raise RuntimeError("private failure")
+            return self
+
+    transport = Blocked(exchange_map)
+    service = OfficialIdentitySnapshot(cache_dir=tmp_path, transport=transport)
+    service.WAIT_SECONDS = 0.01
+    workers = []
+    try:
+        if explicit_first:
+            workers.append(Thread(target=service.refresh))
+            workers[-1].start()
+        else:
+            service.read()
+        assert entered.wait(1)
+        workers.extend(Thread(target=service.refresh) for _ in range(3))
+        for worker in workers[int(explicit_first):]:
+            worker.start()
+        for _ in range(5):
+            assert service.identity("AAPL")["refresh_pending"]
+        assert transport.calls == [SEC_EXCHANGE_TICKERS_URL]
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(3)
+            assert not worker.is_alive()
+        assert service._done.wait(3)
+    identity = service.identity("AAPL")
+    assert not identity["refresh_pending"]
+    assert identity["status"] == ("provider_error" if failure else "available")
+    assert len(transport.calls) == 1
+    service.refresh()
+    assert len(transport.calls) == 1
+
+
+@pytest.mark.parametrize("source", ["file:///private/identity", "https://evil.example/map",
+    SEC_TICKERS_URL + "?redirect=private", "http://www.sec.gov/files/company_tickers.json"])
+def test_legacy_untrusted_source_is_not_echoed_or_verified(tmp_path, source):
+    (tmp_path / "company_tickers.json").write_text(json.dumps({
+        "mapping": {"AAPL": {"cik": "0000320193", "title": "Apple"}},
+        "fetched_at": time.time() - 100, "source_url": source}))
+    identity = OfficialIdentitySnapshot(cache_dir=tmp_path).identity("AAPL")
+    assert identity["verified_as_of"] is identity["source_url"] is identity["name"] is None
+
+
+def test_legacy_unknown_origin_does_not_invent_provenance(tmp_path):
+    (tmp_path / "company_tickers.json").write_text(json.dumps({
+        "mapping": {"AAPL": {"cik": "0000320193", "title": "Apple"}},
+        "fetched_at": time.time() - 100}))
+    identity = OfficialIdentitySnapshot(cache_dir=tmp_path).identity("AAPL")
+    assert identity["name"] == "Apple"
+    assert identity["status"] == "partial"
+    assert identity["verified_as_of"] is identity["source_url"] is identity["retrieved_at"] is None
+
+
+@pytest.mark.parametrize("updates", [
+    {"retrieved_at": "2099-01-01T00:00:00+00:00"},
+    {"retrieved_at": "2020-01-01T00:00:00+00:00"},
+    {"retrieved_at": None}, {"retrieved_at": "2026-10-01T12:30:00"},
+    {"fetched_at": float("nan")}, {"fetched_at": True},
+    {"fetched_at": 4070908800}, {"schema_version": 3}, {"schema_version": "2"},
+    {"source_url": SEC_TICKERS_URL}, {"source_url": "file:///private/identity"},
+])
+def test_digest_consistent_invalid_snapshot_is_rejected(tmp_path, exchange_map, updates):
+    writer = SECCIKMap(tmp_path, source_url=SEC_EXCHANGE_TICKERS_URL)
+    writer.refresh(exchange_map)
+    path = tmp_path / "company_tickers.json"
+    data = json.loads(path.read_text())
+    data.update(updates)
+    path.write_text(json.dumps(signed(data)))
+    identity = OfficialIdentitySnapshot(cache_dir=tmp_path).identity("AAPL")
+    assert identity["status"] == "provider_error"
+    assert identity["verified_as_of"] is identity["name"] is None
+
+
+def test_refresh_rechecks_external_freshness_before_transport(tmp_path, exchange_map):
+    transport = Transport(RuntimeError("must not fetch"))
+    service = OfficialIdentitySnapshot(cache_dir=tmp_path, transport=transport)
+    writer = SECCIKMap(tmp_path, source_url=SEC_EXCHANGE_TICKERS_URL)
+    writer.refresh(exchange_map)
+    original = writer.snapshot["retrieved_at"]
+    service.refresh()
+    assert transport.calls == []
+    assert service.identity("AAPL")["verified_as_of"] == original
+    assert service._done.is_set()
+
+
+def test_worker_start_failure_releases_singleflight_and_cools_down(tmp_path, exchange_map, monkeypatch):
+    transport = Transport(exchange_map)
+    service = OfficialIdentitySnapshot(cache_dir=tmp_path, transport=transport)
+
+    def failed_start(worker):
+        raise RuntimeError("private thread error")
+
+    monkeypatch.setattr(Thread, "start", failed_start)
+    identity = service.identity("AAPL")
+    assert service._done.is_set()
+    assert identity["status"] == "provider_error"
+    assert not identity["refresh_pending"]
+    assert "private" not in str(identity)
+    assert service._next_attempt > time.monotonic()
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("updates", [{"fetched_at": 4070908800},
+    {"fetched_at": float("inf")}, {"retrieved_at": "2099-01-01T00:00:00+00:00"},
+    {"retrieved_at": "2020-01-01T00:00:00+00:00"}, {"schema_version": 9}])
+def test_legacy_bad_time_or_version_cannot_verify(tmp_path, updates):
+    data = {"mapping": {"AAPL": {"cik": "0000320193", "title": "Apple"}},
+        "fetched_at": time.time() - 100, "source_url": SEC_TICKERS_URL}
+    data.update(updates)
+    (tmp_path / "company_tickers.json").write_text(json.dumps(data))
+    identity = OfficialIdentitySnapshot(cache_dir=tmp_path).identity("AAPL")
+    assert identity["status"] == "provider_error"
+    assert identity["verified_as_of"] is None

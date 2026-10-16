@@ -42,7 +42,6 @@ class OfficialIdentitySnapshot:
             transport=self.cik_map.transport, source_url=SEC_EXCHANGE_TICKERS_URL)
         self.enabled = bool(user_agent or transport)
         self._lock = RLock()
-        self._refresh_lock = RLock()
         self._done = Event()
         self._done.set()
         self._next_attempt = 0.0
@@ -77,11 +76,24 @@ class OfficialIdentitySnapshot:
 
     def refresh(self):
         """One official map, preserving raw facts/history. Never raises into UI."""
-        with self._refresh_lock:
+        with self._lock:
+            owner = self._done.is_set()
+            if owner and self._error and clock.monotonic() < self._next_attempt:
+                return
+            if owner:
+                self._done.clear()
+        if owner:
             self._refresh()
+        else:
+            self._done.wait(self.WAIT_SECONDS)
 
     def _refresh(self):
         try:
+            # An external writer may have completed after the job was reserved.
+            self._read_cache()
+            with self._lock:
+                if self._fresh():
+                    return
             self.cik_map.refresh()
             self._read_cache()
             with self._lock:
@@ -122,15 +134,26 @@ class OfficialIdentitySnapshot:
             return None
         try:
             data = json.loads((self.cik_map.cache_dir / f"submissions_{cik}.json").read_text())
+            if not isinstance(data, dict) or not isinstance(data.get("raw"), dict):
+                return None
             digest = hashlib.sha256(json.dumps({k: v for k, v in data.items()
                 if k != "snapshot_id"}, sort_keys=True).encode()).hexdigest()
             raw = data["raw"]
+            observed = self.cik_map.observation_epoch(data["retrieved_at"])
             if (data["snapshot_id"] != digest or str(raw["cik"]).zfill(10) != cik
+                    or observed > clock.time() or observed < 0
+                    or not isinstance(raw.get("tickers"), list)
+                    or not all(isinstance(ticker, str) for ticker in raw["tickers"])
                     or symbol not in raw.get("tickers", [])
+                    or (raw.get("sic") is not None and (
+                        not isinstance(raw["sic"], (str, int)) or isinstance(raw["sic"], bool)
+                        or not str(raw["sic"]).isdigit() or len(str(raw["sic"])) != 4))
+                    or (raw.get("sicDescription") is not None and
+                        not isinstance(raw["sicDescription"], str))
                     or data["source_url"] != f"https://data.sec.gov/submissions/CIK{cik}.json"):
                 return None
             return data
-        except (ValueError, KeyError, OSError, TypeError):
+        except (ValueError, KeyError, OSError, TypeError, OverflowError):
             return None
 
     def read(self):
@@ -140,7 +163,12 @@ class OfficialIdentitySnapshot:
             if (self.enabled and not self._fresh() and self._done.is_set()
                     and clock.monotonic() >= self._next_attempt):
                 self._done.clear()
-                Thread(target=self.refresh, name="sec-identity-snapshot", daemon=True).start()
+                try:
+                    Thread(target=self._refresh, name="sec-identity-snapshot", daemon=True).start()
+                except Exception:
+                    self._error = True
+                    self._next_attempt = clock.monotonic() + self.ERROR_COOLDOWN
+                    self._done.set()
         if cold:
             self._done.wait(self.WAIT_SECONDS)
         with self._lock:

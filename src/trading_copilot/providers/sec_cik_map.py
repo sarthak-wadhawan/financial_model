@@ -12,6 +12,7 @@ import time
 import hashlib
 import os
 import uuid
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -94,14 +95,28 @@ class SECCIKMap:
             # Validate old and new normalized caches before exposing any entry.
             normalized = self.normalize({s: {"ticker": s, "cik_str": e["cik"],
                 "title": e["title"], "exchange": e.get("exchange")} for s, e in mapping.items()})
-            if data.get("schema_version") == 2:
+            version = data.get("schema_version")
+            source = data.get("source_url")
+            fetched_at = data.get("fetched_at")
+            retrieved_at = data.get("retrieved_at")
+            if (version is not None and (type(version) is not int or version not in {1, 2})
+                    or source is not None and source not in {SEC_TICKERS_URL, SEC_EXCHANGE_TICKERS_URL}
+                    or type(fetched_at) not in {int, float} or not math.isfinite(fetched_at)
+                    or not 0 <= fetched_at <= time.time()):
+                return False
+            if retrieved_at is not None:
+                observed = self.observation_epoch(retrieved_at)
+                if not 0 <= observed <= time.time() or abs(observed - fetched_at) > 1:
+                    return False
+            if version == 2:
                 digest_data = {k: v for k, v in data.items() if k != "snapshot_id"}
                 digest = hashlib.sha256(json.dumps(digest_data, sort_keys=True).encode()).hexdigest()
                 if (data.get("snapshot_id") != digest
-                        or data.get("source_url") not in {SEC_TICKERS_URL, SEC_EXCHANGE_TICKERS_URL}
+                        or source not in {SEC_TICKERS_URL, SEC_EXCHANGE_TICKERS_URL}
+                        or retrieved_at is None
+                        or (source == SEC_EXCHANGE_TICKERS_URL) != ("fields" in data["raw"])
                         or self.normalize(data["raw"]) != normalized):
                     return False
-            fetched_at = data.get("fetched_at")
             if not allow_stale and (not isinstance(fetched_at, (int, float))
                     or not 0 <= time.time() - fetched_at <= self.max_age_seconds):
                 return False
@@ -109,9 +124,11 @@ class SECCIKMap:
             self._reverse_mapping = {e["cik"]: s for s, e in normalized.items()}
             self.snapshot = {k: data.get(k) for k in
                 ("schema_version", "source_url", "retrieved_at", "snapshot_id", "fetched_at")}
-            if not self.snapshot["retrieved_at"] and isinstance(fetched_at, (int, float)):
+            if not self.snapshot["retrieved_at"] and source is not None:
                 self.snapshot["retrieved_at"] = datetime.fromtimestamp(fetched_at, timezone.utc).isoformat()
-            self.snapshot["source_url"] = data.get("source_url") or SEC_TICKERS_URL
+            if source is None:
+                # Old mapping remains useful, but an unknown origin cannot verify it.
+                self.snapshot["retrieved_at"] = None
             self._loaded = True
             logger.info(f"Loaded {len(self._mapping)} symbol-CIK mappings from cache")
             return True
@@ -119,15 +136,26 @@ class SECCIKMap:
             logger.warning("Failed to load CIK cache")
             return False
 
+    @staticmethod
+    def observation_epoch(value: str) -> float:
+        """Parse an actual timezone-qualified observation, never the response clock."""
+        if not isinstance(value, str):
+            raise ValueError("Invalid observation time")
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            raise ValueError("Observation time requires timezone")
+        return observed.timestamp()
+
     def _save_cache(self, raw: dict[str, Any] | None = None) -> None:
         """Save mapping to cache file."""
+        observed = datetime.now(timezone.utc)
         data = {
             "mapping": self._mapping,
             "reverse_mapping": self._reverse_mapping,
-            "fetched_at": time.time(),
+            "fetched_at": observed.timestamp(),
             "schema_version": 2,
             "source_url": self.source_url,
-            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "retrieved_at": observed.isoformat(),
             "raw": raw,
         }
         history = self.cache_dir / "snapshots"
