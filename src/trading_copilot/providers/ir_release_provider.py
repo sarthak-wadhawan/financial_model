@@ -202,6 +202,9 @@ class IRReleaseProvider:
             try:
                 doc = self._parse_entry(symbol, entry, from_date, to_date)
                 if doc:
+                    # Preserve the actual response origin; configuration/classification
+                    # alone is not evidence that an official source supplied content.
+                    doc.metadata["feed_response_url"] = str(response.url)
                     documents.append(doc)
             except Exception as exc:
                 self._error(symbol, "parse_entry", entry.get("id", "unknown"), exc)

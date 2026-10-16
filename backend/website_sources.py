@@ -273,6 +273,7 @@ class WebsiteSourceAdapter:
             provider.close()
 
     def _releases(self, symbols, name):
+        from trading_copilot.providers.official_earnings_schedule import reconcile_schedule_revision
         provider = (WebsiteSECExhibitProvider(user_agent=self.settings.sec_user_agent) if name == "sec_exhibits"
                     else DatedIRProvider(timeout=10))
         try:
@@ -282,17 +283,39 @@ class WebsiteSourceAdapter:
                 from_date=(datetime.now(timezone.utc)-timedelta(days=45 if name == "sec_exhibits" else 90)).date(),
                 to_date=datetime.now(timezone.utc).date())
             today = datetime.now(timezone.utc).date()
-            schedules = []
+            schedules = {}
+            known = {}
+            if name == "ir_releases":
+                for symbol in symbols:
+                    for event in self.store.events_for_symbol(symbol, limit=-1, event_types=[EventType.EARNINGS]):
+                        known[event.source_id] = event
+                # Seed batch candidates so feed ordering cannot hide a referenced
+                # old announcement during the first ingestion of a replacement.
+                for document in documents:
+                    candidate = extract_official_schedule(document, today)
+                    if candidate:
+                        known.setdefault(candidate.source_id, candidate)
             retained = []
-            for document in documents:
+            for document in sorted(documents, key=lambda d: d.published_at):
                 schedule = extract_official_schedule(document, today) if name == "ir_releases" else None
+                revisions = []
+                prior = known.get(schedule.source_id) if schedule else None
+                superseded = bool(prior and prior.metadata.get("revision_evidence", {}).get("source_document_id")
+                                  not in (None, document.document_id) and
+                                  prior.metadata.get("source_content_hash") == document.content_hash)
+                if name == "ir_releases" and not superseded:
+                    revisions = reconcile_schedule_revision(document, schedule, list(known.values()))
+                    for revision in revisions:
+                        schedules[revision.source_id] = known[revision.source_id] = revision
+                if superseded:
+                    schedule = None
                 if schedule:
-                    schedules.append(schedule)
+                    schedules[schedule.source_id] = known[schedule.source_id] = schedule
                 # Broader schedule discovery must not broaden news semantics.
-                if name != "ir_releases" or schedule or document.published_at.date() >= today - timedelta(days=7):
+                if name != "ir_releases" or schedule or revisions or superseded or document.published_at.date() >= today - timedelta(days=7):
                     retained.append(document)
             counts = self._documents(retained, name, len(provider.errors))
-            for event in schedules:
+            for event in schedules.values():
                 existing = self.store.get_event_by_source_id(event.source_id, EventType.EARNINGS)
                 if existing:
                     event.metadata["_identity_key"] = existing.metadata["_identity_key"]

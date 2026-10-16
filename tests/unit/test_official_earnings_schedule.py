@@ -30,7 +30,15 @@ def doc(body=VISA, title="Official results announcement", symbol="V"):
                         retrieved_at=datetime.now(timezone.utc),
                         source_url=f"https://{('investor.visa.com' if symbol == 'V' else 'ir.thermofisher.com')}/release",
                         source_type=NewsSourceType.COMPANY_IR, provider_id="company_ir_rss",
+                        metadata={"feed_url": IR_RSS_FEEDS[symbol], "feed_response_url": IR_RSS_FEEDS[symbol]},
                         content_hash=hashlib.sha256(body.encode()).hexdigest())
+
+
+def authenticate_parsed(document):
+    # Isolated parser tests explicitly inject the observed feed response origin;
+    # production sets this only after a real HTTP response in _fetch_feed.
+    document.metadata["feed_response_url"] = IR_RSS_FEEDS[document.symbol]
+    return document
 
 
 def test_visa_session_is_not_webcast_clock():
@@ -98,7 +106,7 @@ def test_title_only_denied_body_preserves_cited_call(monkeypatch, status):
     assert document.body == TMO
     assert document.metadata["body_basis"] == "feed_title_only"
     assert provider.errors[0]["stage"] == "linked_body"
-    assert extract_official_schedule(document, TODAY).metadata["event_kind"] == "earnings_call"
+    assert extract_official_schedule(authenticate_parsed(document), TODAY).metadata["event_kind"] == "earnings_call"
     # Legacy news-only parser does not start fetching linked bodies.
     provider.schedule_mode = False
     assert provider._parse_entry("TMO", entry(), date(2026, 7, 18), TODAY) is None
@@ -140,11 +148,11 @@ def test_successful_linked_body_and_bounded_requests(monkeypatch):
         document = provider._parse_entry("TMO", entry(), date(2026, 7, 18), TODAY)
     assert len(calls) == 4
     assert document.metadata["body_basis"] == "feed_title_only"
-    assert extract_official_schedule(document, TODAY).metadata["event_kind"] == "earnings_call"
+    assert extract_official_schedule(authenticate_parsed(document), TODAY).metadata["event_kind"] == "earnings_call"
     provider.linked_body_budget = 1
     document = provider._parse_entry("TMO", entry(), date(2026, 7, 18), TODAY)
     assert document.metadata["raw_content"].startswith("<p>")
-    schedule = extract_official_schedule(document, TODAY)
+    schedule = extract_official_schedule(authenticate_parsed(document), TODAY)
     assert schedule.metadata["event_kind"] == "results_release"
     assert schedule.metadata["session"] == "bmo"
 
@@ -240,3 +248,180 @@ def test_refresh_90_day_schedule_discovery_idempotency_and_amendment(monkeypatch
         assert seen == [90, 90, 90]
     finally:
         store.close()
+
+
+@pytest.mark.parametrize("body", [
+    "Visa will announce earnings dividend on October 27, 2026.",
+    "Visa will announce financial results for shareholders of record on October 27, 2026.",
+    "On October 27, 2026 the dividend is payable; Visa will announce financial results soon.",
+    "October 27, 2026 is the investor day; Visa will announce financial results soon.",
+    VISA + " The previously announced financial results release has been cancelled.",
+    VISA + " We will not release these results as announced.",
+    "Visa will announce financial results on October 27, 2026 or October 28, 2026. "
+    "Visa will announce financial results on October 29, 2026.",
+])
+def test_targeted_whole_claim_false_positive_repros(body):
+    assert extract_official_schedule(doc(body), TODAY) is None
+
+
+@pytest.mark.parametrize("changes", [
+    {"feed_url": "https://evil.test/rss"},
+    {"feed_response_url": "https://evil.test/rss"},
+    {"feed_response_url": "http://investor.visa.com/rss"},
+    {"feed_response_url": "https://investor.visa.com:444/rss"},
+    {"feed_response_url": "https://user:secret@investor.visa.com/rss"},
+])
+def test_classification_or_guessed_link_cannot_authenticate(changes):
+    document = doc()
+    document.metadata.update(changes)
+    assert extract_official_schedule(document, TODAY) is None
+    document.metadata.clear()
+    assert extract_official_schedule(document, TODAY) is None
+
+
+@pytest.mark.parametrize("response_url,link,custom,verified", [
+    (IR_RSS_FEEDS["TMO"], "https://ir.thermofisher.com/release", None, True),
+    ("https://evil.test/rss", "https://ir.thermofisher.com/release", None, False),
+    (IR_RSS_FEEDS["TMO"], "https://evil.test/release", None, False),
+    ("https://evil.test/rss", "https://ir.thermofisher.com/release", "https://evil.test/rss", False),
+    (IR_RSS_FEEDS["TMO"], "https://ir.thermofisher.com/release", "https://ir.thermofisher.com/other", False),
+])
+def test_injected_ir_response_requires_approved_feed_and_actual_origin(monkeypatch, response_url, link, custom, verified):
+    xml = (f'<rss version="2.0"><channel><item><guid>stable</guid><title>{TMO}</title>'
+           f'<link>{link}</link><pubDate>Mon, 28 Sep 2026 12:00:00 GMT</pubDate>'
+           f'<description>{TMO}</description></item></channel></rss>')
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: httpx.Response(
+        200, content=xml.encode(), request=httpx.Request("GET", response_url)))
+    provider = DatedIRProvider(custom_feeds={"TMO": custom} if custom else None)
+    documents = provider.fetch_company_releases(["TMO"], date(2026, 7, 18), TODAY)
+    assert len(documents) == 1  # Custom feeds remain usable as raw, unverified news.
+    assert (extract_official_schedule(documents[0], TODAY) is not None) == verified
+
+
+@pytest.mark.parametrize("revision,expected", [
+    ("Visa's fiscal fourth quarter 2026 financial results release on {old} has been cancelled.", "cancelled"),
+    ("The timing of Visa's fiscal fourth quarter 2026 financial results is under review.", "unknown"),
+    ("Visa will announce fiscal fourth quarter 2026 financial results on {old} or {new}. "
+     "Visa will announce fiscal fourth quarter 2026 financial results on {later}.", "unknown"),
+])
+def test_same_document_revision_retires_support_without_deleting_history(monkeypatch, tmp_path, revision, expected):
+    today = datetime.now(timezone.utc).date()
+    old, new, later = [(today + timedelta(days=n)).strftime("%B %d, %Y") for n in (11, 12, 13)]
+    document = doc(f"Visa will announce fiscal fourth quarter 2026 financial results on {old}.")
+    monkeypatch.setattr(DatedIRProvider, "fetch_company_releases", lambda *a, **k: [document])
+    store = EventStore(str(tmp_path / "events.db"))
+    adapter = WebsiteSourceAdapter(store, SimpleNamespace(sec_user_agent=None))
+    assert adapter._releases(["V"], "ir_releases")["NEW"] == 2
+    source_id = document.document_id + ":schedule:results_release"
+    original = store.get_event_by_source_id(source_id, EventType.EARNINGS)
+    document.body = revision.format(old=old, new=new, later=later)
+    assert adapter._releases(["V"], "ir_releases")["CHANGED"] == 2
+    current = store.get_event_by_source_id(source_id, EventType.EARNINGS)
+    assert current.event_id == original.event_id
+    assert current.status.value == expected
+    assert current.metadata["verification_status"] == "stale_unverified"
+    assert current.metadata["projection_eligible"] is False
+    assert current.metadata["revision_evidence"]["text"] == document.body
+    assert store.get_revisions(original.event_id)[0].old_snapshot["status"] == "scheduled"
+    assert store.count_events() == 2
+    assert adapter._releases(["V"], "ir_releases")["UNCHANGED"] == 2
+    assert len(store.get_revisions(original.event_id)) == 1
+
+
+def test_new_document_explicit_replacement_is_scoped_and_preserves_raw_history(monkeypatch, tmp_path):
+    today = datetime.now(timezone.utc).date()
+    old, new = [(today + timedelta(days=n)).strftime("%B %d, %Y") for n in (11, 12)]
+    document = doc(f"Visa will announce fiscal fourth quarter 2026 financial results on {old}.")
+    documents = [document]
+    monkeypatch.setattr(DatedIRProvider, "fetch_company_releases", lambda *a, **k: documents)
+    store = EventStore(str(tmp_path / "events.db"))
+    adapter = WebsiteSourceAdapter(store, SimpleNamespace(sec_user_agent=None))
+    adapter._releases(["V"], "ir_releases")
+    original = store.get_event_by_source_id(document.document_id + ":schedule:results_release", EventType.EARNINGS)
+    replacement = doc(f"Visa will announce fiscal fourth quarter 2026 financial results, rescheduled from {old} to {new}.")
+    replacement.document_id += ":replacement"
+    documents[:] = [replacement]
+    counts = adapter._releases(["V"], "ir_releases")
+    assert counts["NEW"] == 2 and counts["CHANGED"] == 1
+    assert store.get_event(original.event_id).status.value == "cancelled"
+    active = store.get_event_by_source_id(replacement.document_id + ":schedule:results_release", EventType.EARNINGS)
+    assert active.status.value == "scheduled"
+    assert active.metadata["event_date"] == (today + timedelta(days=12)).isoformat()
+    assert store.count_events() == 4
+    assert store.get_event_by_source_id(document.document_id, EventType.NEWS).metadata["document"]["body"] == document.body
+    assert len(store.get_revisions(original.event_id)) == 1
+    assert adapter._releases(["V"], "ir_releases")["UNCHANGED"] == 3
+
+
+@pytest.mark.parametrize("period,language", [
+    ("fiscal third quarter 2026", "rescheduled from"),
+    ("fiscal fourth quarter 2026", "on"),
+    ("", "rescheduled from"),
+])
+def test_cross_document_never_retires_by_company_or_date_alone(period, language):
+    from trading_copilot.providers.official_earnings_schedule import reconcile_schedule_revision
+    original = extract_official_schedule(doc("Visa will announce fiscal fourth quarter 2026 financial results on October 27, 2026."), TODAY)
+    replacement = doc(f"Visa will announce {period} financial results {language} October 27, 2026 to October 28, 2026.")
+    replacement.document_id += ":new"
+    schedule = extract_official_schedule(replacement, TODAY)
+    revisions = reconcile_schedule_revision(replacement, schedule, [original])
+    if period == "fiscal fourth quarter 2026":
+        assert revisions[0].status.value == "unknown"
+        assert revisions[0].metadata["verification_status"] == "stale_unverified"
+    else:
+        assert revisions == []
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_same_batch_replacement_order_and_repeated_old_feed_entry_cannot_resurrect(monkeypatch, tmp_path, reverse):
+    today = datetime.now(timezone.utc).date()
+    old, new = [(today + timedelta(days=n)).strftime("%B %d, %Y") for n in (11, 12)]
+    original = doc(f"Visa will announce fiscal fourth quarter 2026 financial results on {old}.")
+    replacement = doc(f"Visa will announce fiscal fourth quarter 2026 financial results, rescheduled from {old} to {new}.")
+    replacement.document_id += ":replacement"
+    documents = [original, replacement]
+    if reverse:
+        documents.reverse()
+    monkeypatch.setattr(DatedIRProvider, "fetch_company_releases", lambda *a, **k: documents)
+    store = EventStore(str(tmp_path / "events.db"))
+    adapter = WebsiteSourceAdapter(store, SimpleNamespace(sec_user_agent=None))
+    assert adapter._releases(["V"], "ir_releases")["NEW"] == 4
+    prior = store.get_event_by_source_id(original.document_id + ":schedule:results_release", EventType.EARNINGS)
+    assert prior.status.value == "cancelled"
+    counts = adapter._releases(["V"], "ir_releases")
+    assert counts["CHANGED"] == 0 and counts["NEW"] == 0
+    assert store.get_event(prior.event_id).status.value == "cancelled"
+    assert not store.get_revisions(prior.event_id)
+
+
+def test_unrelated_call_cancellation_never_cancels_results():
+    from trading_copilot.providers.official_earnings_schedule import reconcile_schedule_revision
+    original = extract_official_schedule(doc(), TODAY)
+    revision = doc(VISA + " The conference call was cancelled.")
+    assert extract_official_schedule(revision, TODAY) is None
+    revised = reconcile_schedule_revision(revision, None, [original])[0]
+    assert revised.status.value == "unknown"
+    assert revised.metadata["projection_eligible"] is False
+
+
+def test_new_document_cancellation_is_scoped_to_verified_kind_period_and_old_date(monkeypatch, tmp_path):
+    today = datetime.now(timezone.utc).date()
+    old = (today + timedelta(days=11)).strftime("%B %d, %Y")
+    original = doc(f"Visa will announce fiscal fourth quarter 2026 financial results on {old}.")
+    documents = [original]
+    monkeypatch.setattr(DatedIRProvider, "fetch_company_releases", lambda *a, **k: documents)
+    store = EventStore(str(tmp_path / "events.db"))
+    adapter = WebsiteSourceAdapter(store, SimpleNamespace(sec_user_agent=None))
+    adapter._releases(["V"], "ir_releases")
+    call = extract_official_schedule(doc(f"Visa to hold earnings conference call on {old}."), today)
+    store.upsert_event(call)
+    cancellation = doc(f"Visa's fiscal fourth quarter 2026 financial results release on {old} has been cancelled.")
+    cancellation.document_id += ":cancellation"
+    documents[:] = [cancellation]
+    counts = adapter._releases(["V"], "ir_releases")
+    assert counts["NEW"] == 1 and counts["CHANGED"] == 1
+    prior = store.get_event_by_source_id(original.document_id + ":schedule:results_release", EventType.EARNINGS)
+    assert prior.status.value == "cancelled"
+    assert store.get_event_by_source_id(call.source_id, EventType.EARNINGS).status.value == "scheduled"
+    assert len(store.get_revisions(prior.event_id)) == 1
+    assert store.count_events() == 4
