@@ -1,0 +1,11 @@
+.next-earnings { margin: .65rem 0; padding: .6rem .8rem; border-inline-start: 3px solid #008505; background: #f1f7f2; color: #18271d; border-radius: 4px; min-width: 0; }
+.next-earnings__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; font-size: .95rem; }
+.next-earnings details { font-size: .8rem; overflow-wrap: anywhere; }
+.next-earnings summary { cursor: pointer; padding: .5rem 0; width: fit-content; }
+.next-earnings p { margin: .35rem 0; }
+.next-earnings blockquote { margin: .5rem 0; padding-inline-start: .75rem; border-inline-start: 2px solid #829788; }
+.next-earnings a { color: #006d13; text-decoration: underline; }
+.next-earnings :focus-visible { outline: 3px solid #008505; outline-offset: 3px; }
+.dark .next-earnings { background: #171d19; color: #edf3ef; border-color: #00c805; }
+.dark .next-earnings a { color: #00c805; }
+.dark .next-earnings :focus-visible { outline-color: #00c805; }

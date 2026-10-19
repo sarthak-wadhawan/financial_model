@@ -96,7 +96,7 @@ def extract_official_schedule(document, today: date):
             # A mixed results/call clause cannot establish a release date unless
             # the date occurs before the separate call clause.
             if release and call and call.start() < match.start():
-                continue
+                return None
             kind = "results_release" if release else "earnings_call"
             session = "unknown"
             if release:
@@ -107,13 +107,21 @@ def extract_official_schedule(document, today: date):
                     session = "amc" if amc else "bmo"
             found.append((day, kind, session, field, sentence.start(), sentence.end(), clause))
         if found:
-            candidates = found
-            break
-        if schedule_language:
+            candidates.extend(found)
+        elif schedule_language and field == "body":
             # A vague/conflicting body is not repaired by an older headline.
             return None
-    if not candidates or len({(c[0], c[1], c[2]) for c in candidates}) != 1:
+    if not candidates:
         return None
+    # Inspect both preserved fields before choosing evidence. A separate call
+    # date/clock is not a competing results release, but two claims of the same
+    # kind must agree. An omitted session is not a contradictory session.
+    for kind in {c[1] for c in candidates}:
+        claims = [c for c in candidates if c[1] == kind]
+        if (len({c[0] for c in claims}) != 1 or
+                len({c[2] for c in claims if c[2] != "unknown"}) > 1):
+            return None
+    candidates.sort(key=lambda c: (c[1] != "results_release", c[2] == "unknown", c[3] != "body"))
     day, kind, session, field, start, end, text = candidates[0]
     return MarketEvent(
         event_type=EventType.EARNINGS, symbol=document.symbol,
@@ -176,7 +184,7 @@ def reconcile_schedule_revision(document, schedule, existing_events):
                                           if month.lower() == old_date[1].lower()), int(old_date[2])).isoformat()
             except ValueError:
                 pass
-        ambiguous_period = same_period_kind and schedule is None
+        ambiguous_period = linked and schedule is None
         if not same_document and not (linked and (cancellation or replacement)) and not ambiguous_period:
             continue
         # Unchanged unsupported documents need no additional history entries.
@@ -192,3 +200,36 @@ def reconcile_schedule_revision(document, schedule, existing_events):
                                 revision_evidence=evidence)
         revisions.append(revised)
     return revisions
+
+
+def reinstatement_evidence(document, schedule, prior, existing_events):
+    """Only an explicit reverse reschedule can release a cross-document hold.
+
+    A fresh hash or repeated active wording does not reconcile the intervening
+    retirement. Require the currently active replacement, its date and period.
+    """
+    match = REPLACEMENT.search(document.body)
+    if not match or not schedule or not authenticated_official_document(document):
+        return None
+    dates = list(DATE.finditer(match.group()))
+    cited = []
+    for item in dates:
+        try:
+            cited.append(date(int(item[3]), next(i + 1 for i, month in enumerate(MONTHS)
+                                               if month.lower() == item[1].lower()), int(item[2])).isoformat())
+        except ValueError:
+            return None
+    retiring_id = prior.metadata.get("revision_evidence", {}).get("source_document_id")
+    for active in existing_events:
+        if (len(cited) == 2 and active.symbol == document.symbol and
+                active.metadata.get("source_document_id") == retiring_id and
+                active.status == EventStatus.SCHEDULED and
+                active.metadata.get("event_kind") == schedule.metadata.get("event_kind") and
+                active.metadata.get("fiscal_period") == fiscal_period(document) and
+                fiscal_period(document) is not None and
+                cited == [active.metadata.get("event_date"), prior.metadata.get("event_date")] and
+                schedule.metadata.get("event_date") == cited[1]):
+            return {"source_document_id": document.document_id, "source_url": document.source_url,
+                    "field": "body", "start": match.start(), "end": match.end(),
+                    "text": match.group(), "reconciled_source_id": active.source_id}
+    return None

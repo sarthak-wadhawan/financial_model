@@ -364,6 +364,43 @@ export interface SymbolSearchResult {
   source: string
 }
 
+export interface NextEarningsEvidence {
+  event_id: string
+  source: string
+  source_url: string
+  source_document_id: string
+  source_content_hash: string
+  retrieved_at: string
+  evidence_span: { field: 'body' | 'headline'; start: number; end: number; text: string }
+}
+
+export interface NextEarnings {
+  symbol: string
+  event_kind: 'results_release'
+  event_date: string
+  session: 'bmo' | 'amc' | 'unknown'
+  scheduled_time_precision: 'session' | 'date'
+  scheduled_at: null
+  event_timezone: null
+  days_until: number
+  countdown_basis: 'calendar_days'
+  fiscal_period: string | null
+  verification_status: 'verified'
+  verification_scope: 'explicit_official_announcement'
+  event_ids: string[]
+  evidence: NextEarningsEvidence[]
+}
+
+export interface EarningsCoverage {
+  status: 'not_refreshed' | 'checked' | 'empty' | 'partial' | 'error' | 'unavailable'
+  confirmation_status: 'not_confirmed' | 'conflicting_announcements' | 'retained_official_announcement'
+  checked_at: string | null
+  query_limit: number
+  query_truncated: boolean
+  selection_scope: 'retained_events_only'
+  reason: string
+}
+
 export interface StockDetail {
   symbol: string
   name: string | null
@@ -379,6 +416,8 @@ export interface StockDetail {
   quant_signals: QuantSignals
   interpretation: Interpretation
   events: CompanyEvent[]
+  next_earnings?: NextEarnings | null
+  earnings_coverage?: EarningsCoverage | null
 }
 
 export interface Interpretation {

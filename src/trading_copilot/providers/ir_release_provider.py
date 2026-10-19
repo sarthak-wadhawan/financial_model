@@ -13,6 +13,8 @@ from urllib.parse import urljoin, urlsplit
 import ipaddress
 import socket
 import time
+import threading
+import queue
 
 import feedparser
 import httpx
@@ -21,6 +23,11 @@ from trading_copilot.models.news import NewsDocument, NewsSourceType
 from trading_copilot.providers.base import NewsProvider
 
 logger = logging.getLogger(__name__)
+
+# Uncooperative DNS/transport implementations cannot be interrupted in Python.
+# Daemon workers never publish documents and retain their slot until cleanup;
+# a process-wide cap prevents repeated timeouts from accumulating threads.
+_LINKED_SLOTS = threading.BoundedSemaphore(4)
 
 # Known company IR RSS feeds (subset - can be extended)
 IR_RSS_FEEDS = {
@@ -302,22 +309,64 @@ class IRReleaseProvider:
                 target.hostname != configured.hostname or
                 urlsplit(self.feeds[symbol]).hostname != configured.hostname):
             raise ValueError("Linked body must use the configured official HTTPS origin")
-        addresses = socket.getaddrinfo(target.hostname, 443, type=socket.SOCK_STREAM)
-        if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
-            raise ValueError("Non-public official origin resolution refused")
         started = time.monotonic()
-        chunks, size = [], 0
-        with httpx.stream("GET", link, timeout=min(self.timeout, 10),
-                          follow_redirects=False, trust_env=False) as response:
-            response.raise_for_status()
-            if response.headers.get("content-type", "").split(";")[0] not in ("text/html", "text/plain", "application/xhtml+xml"):
-                raise ValueError("Unsupported linked body type")
-            for chunk in response.iter_bytes():
-                size += len(chunk)
-                if size > 512_000 or time.monotonic() - started > 10:
-                    raise ValueError("Linked body limit exceeded")
-                chunks.append(chunk)
-        return b"".join(chunks).decode("utf-8", errors="replace")
+        budget = min(self.timeout, 10)
+        if not _LINKED_SLOTS.acquire(blocking=False):
+            raise ValueError("Linked body inflight limit exceeded")
+        cancelled = threading.Event()
+        result = queue.Queue(maxsize=1)
+
+        def remaining():
+            left = budget - (time.monotonic() - started)
+            if cancelled.is_set() or left <= 0:
+                raise ValueError("Linked body elapsed limit exceeded")
+            return left
+
+        def read():
+            try:
+                addresses = socket.getaddrinfo(target.hostname, 443, type=socket.SOCK_STREAM)
+                remaining()
+                if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
+                    raise ValueError("Non-public official origin resolution refused")
+                chunks, size = [], 0
+                with httpx.stream("GET", link, timeout=remaining(),
+                                  follow_redirects=False, trust_env=False) as response:
+                    remaining()  # Headers (including an empty response) consume budget.
+                    response.raise_for_status()
+                    if response.headers.get("content-type", "").split(";")[0] not in ("text/html", "text/plain", "application/xhtml+xml"):
+                        raise ValueError("Unsupported linked body type")
+                    for chunk in response.iter_bytes():
+                        remaining()
+                        size += len(chunk)
+                        if size > 512_000:
+                            raise ValueError("Linked body size limit exceeded")
+                        chunks.append(chunk)
+                    remaining()
+                remaining()
+                value = b"".join(chunks).decode("utf-8", errors="replace")
+                remaining()
+                if not cancelled.is_set():
+                    result.put_nowait((value, None))
+            except Exception as exc:
+                if not cancelled.is_set():
+                    result.put_nowait((None, exc))
+            finally:
+                _LINKED_SLOTS.release()
+
+        try:
+            threading.Thread(target=read, daemon=True, name="ir-linked-body").start()
+        except Exception:
+            _LINKED_SLOTS.release()
+            raise
+        try:
+            value, error = result.get(timeout=budget)
+        except queue.Empty:
+            cancelled.set()
+            raise ValueError("Linked body elapsed limit exceeded") from None
+        if error:
+            raise error
+        remaining()
+        return value
 
     def _clean_html(self, html: str) -> str:
         """Strip HTML tags and clean whitespace."""

@@ -393,6 +393,43 @@ def test_same_batch_replacement_order_and_repeated_old_feed_entry_cannot_resurre
     assert store.get_event(prior.event_id).status.value == "cancelled"
     assert not store.get_revisions(prior.event_id)
 
+    # Unrelated edits to the retired document cannot unfreeze its old claim.
+    original.body += " Investor relations contact information has been updated."
+    original.content_hash = hashlib.sha256(original.body.encode()).hexdigest()
+    documents[:] = [original]
+    adapter._releases(["V"], "ir_releases")
+    retired = store.get_event(prior.event_id)
+    assert retired.status.value == "cancelled"
+    assert retired.metadata["revision_evidence"] == prior.metadata["revision_evidence"]
+    assert not store.get_revisions(prior.event_id)
+    assert adapter._releases(["V"], "ir_releases")["CHANGED"] == 0
+    assert store.get_event_by_source_id(original.document_id, EventType.NEWS).metadata["document"]["body"] == original.body
+
+
+@pytest.mark.parametrize("body,title", [
+    (VISA, VISA.replace("October 27", "October 28")),
+    (TMO, TMO.replace("October 21", "October 22")),
+    (VISA + " Visa to hold earnings conference call on October 28, 2026.",
+     "Visa to hold earnings conference call on October 29, 2026"),
+    (VISA, "Visa will announce financial results and hold earnings conference call on October 28, 2026"),
+])
+def test_headline_body_conflicts_are_checked_globally(body, title):
+    assert extract_official_schedule(doc(body, title), TODAY) is None
+
+
+def test_distinct_call_date_is_not_a_conflicting_release_date():
+    event = extract_official_schedule(doc(VISA, "Visa to hold earnings conference call on October 28, 2026"), TODAY)
+    assert event.metadata["event_date"] == "2026-10-27"
+    assert event.metadata["session"] == "amc"
+
+
+def test_uncited_cross_document_ambiguity_does_not_rewrite_old_fact():
+    from trading_copilot.providers.official_earnings_schedule import reconcile_schedule_revision
+    old = extract_official_schedule(doc(VISA), TODAY)
+    other = doc("The timing of fiscal fourth quarter and full-year 2026 financial results is under review.")
+    other.document_id += ":other"
+    assert reconcile_schedule_revision(other, None, [old]) == []
+
 
 def test_unrelated_call_cancellation_never_cancels_results():
     from trading_copilot.providers.official_earnings_schedule import reconcile_schedule_revision

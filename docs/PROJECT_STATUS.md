@@ -1,5 +1,11 @@
 # Project Status
 
+## 2026-10-19 — User-requested STOP / portable WIP checkpoint
+
+Preserving all legitimate frontend next-earnings summary work and interrupted earnings source/security fixes on `work/trading-copilot-ux`. Projection helper accepted at `1622cad3`; summary BUILD reports75 targeted tests/TS/lint PASS but independent browser review is pending. Source/security BUILD hit usage limit: four remaining financial/security findings have partial attempted fixes, no final test/audit acceptance. Stop-time Python compilation/scoped whitespace checks pass only. Full UX2/overhaul incomplete; no main merge, Phase12 or final PASS. See `WORK_CHECKPOINT.md` for exact files, gates and cross-computer resume instructions. No app listeners at checkpoint; no active subagents.
+
+All11 project skill instruction files are also tracked in this checkpoint by explicit user request; no private/generated files are included.
+
 ## Active — Phase≤11 UX overhaul
 
 User authorized the KISS stock-first website overhaul after R1. Dedicated branch `work/trading-copilot-ux`; portable checkpoint `WORK_CHECKPOINT.md`; bounded UX0–UX9 DAG appended without replacing earlier work. Planning only at initial checkpoint; no implementation or new PASS claim yet. Preserve uncommitted database/generated/user work. No Phase12 and no main merge before final verification.

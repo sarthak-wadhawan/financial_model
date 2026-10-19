@@ -5,6 +5,7 @@ import { api } from '../services/api'
 import type { Interpretation } from '../services/api'
 import { Badge } from '../components/ui'
 import { PriceHistoryChart } from '../components/stock/PriceHistoryChart'
+import { NextEarningsSummary } from '../components/stock/NextEarningsSummary'
 import './StockPage.css'
 import { DataStatus, displayDate, displayNumber, EventTiming, ProviderCoverage, record, SourceLink, Term, text } from '../components/ui/ResearchData'
 
@@ -33,18 +34,12 @@ export function StockPage() {
   const change = finite(stock.change), changePct = finite(stock.change_pct)
   const direction = change ?? changePct
   const changeStyle = direction === null || direction === 0 ? 'neutral' : direction > 0 ? 'positive' : 'negative'
-  const scheduledResults = (detail.data?.events ?? []).filter(event => {
-    const metadata = record(event.metadata)
-    const date = event.scheduled_at ?? (typeof metadata.event_date === 'string' ? metadata.event_date : null)
-    return event.event_type === 'earnings' && event.status === 'scheduled' && !event.released_at && !metadata.is_estimate && !metadata.estimated && !/(call|conference|webcast)/i.test(`${event.title} ${text(metadata.event_subtype, '')}`) && !!date && Number.isFinite(Date.parse(date)) && date.slice(0, 10) >= new Date().toISOString().slice(0, 10)
-  }).sort((a, b) => text(a.scheduled_at ?? record(a.metadata).event_date).localeCompare(text(b.scheduled_at ?? record(b.metadata).event_date)))
-  const nextResults = scheduledResults[0]
   if (!symbol) return <div className="empty-state">No symbol specified.</div>
   return <div className="stock-page">
     <div className="stock-header"><div className="stock-header-main"><div className="stock-identity"><h1>{text(stock.name, symbol)}</h1><span className="stock-exchange">{symbol} · {text(stock.exchange, 'Exchange unavailable')}</span>{detail.isSuccess && !stock.name && <p className="data-status">Company name unavailable</p>}</div><div className="stock-price"><span className="current-price">{finite(stock.price) !== null ? `$${displayNumber(stock.price, 2)}` : 'Price unavailable'}</span><span className={`price-change ${changeStyle}`}>Daily change: {change === null ? 'Unavailable' : signedChange(change, '$')} ({changePct === null ? 'Unavailable' : signedChange(changePct, '%')})</span></div></div>
       <DataStatus loading={detail.isLoading} error={detail.isError} label="company details and daily close" />
       <p className="data-status">Latest completed daily close, not a live quote. {displayDate(typeof priceData.market_timestamp === 'string' ? priceData.market_timestamp : null)} · Source: {text(priceData.source)}{priceData.mode === 'demo' ? ' · Demo/test data' : ''}</p>
-      <p className="stock-next-earnings">{nextResults ? <>Next scheduled earnings results: <EventTiming event={nextResults} /> · Source: {nextResults.source} <SourceLink url={nextResults.source_url} /></> : 'Next earnings date not yet confirmed'}</p>
+      <NextEarningsSummary symbol={symbol} nextEarnings={stock.next_earnings} coverage={stock.earnings_coverage} loading={detail.isLoading} error={detail.isError} />
       {!!Object.keys(identity).length && <p className="data-status">Company identity: {text(identity.source)} · Verified as of {displayDate(typeof identity.verified_as_of === 'string' ? identity.verified_as_of : null)} · {text(identity.status, 'Status unavailable')}</p>}
       <details className="stock-diagnostics"><summary>Price & identity provenance</summary><p><Provenance data={priceData} /></p>{!!Object.keys(identity).length && <><p>Identity source: {text(identity.source)} · Retrieved: {text(identity.retrieved_at)} · Status: {text(identity.status)}{identity.reason ? ` · ${text(identity.reason)}` : ''}</p><SourceLink url={identity.source_url}>Identity source</SourceLink></>}</details>
       <nav className="stock-tabs" role="tablist" aria-label="Stock sections">{tabs.map(tab => <button key={tab} type="button" role="tab" id={`stock-tab-${tab}`} aria-controls="stock-panel" aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)} onKeyDown={e => {

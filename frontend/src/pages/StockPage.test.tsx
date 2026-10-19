@@ -193,13 +193,39 @@ describe('StockPage actual Phase 9 and evidence contracts', () => {
     vi.mocked(api.getStockDetail).mockResolvedValue({ ...stock, events: [{ ...event, event_type: 'earnings', status: 'scheduled', title: 'Earnings conference call', released_at: null, scheduled_at: '2099-10-20T20:00:00Z' }] })
     mount()
     await screen.findByRole('heading', { name: 'Apple fixture' })
-    expect(screen.getByText('Next earnings date not yet confirmed')).toBeInTheDocument()
+    expect(screen.getByText('Next earnings date not yet confirmed.')).toBeInTheDocument()
     expect(screen.queryByText(/Next scheduled earnings results:/)).not.toBeInTheDocument()
   })
-  it('uses retained scheduled earnings results instead of an unconfirmed placeholder', async () => {
+  it('never bypasses an absent server projection with misleading raw scheduled results', async () => {
     vi.mocked(api.getStockDetail).mockResolvedValue({ ...stock, events: [{ ...event, event_type: 'earnings', status: 'scheduled', title: 'Quarterly earnings results', released_at: null, scheduled_at: '2099-10-20T20:00:00Z' }] })
     mount()
-    expect(await screen.findByText(/Next scheduled earnings results:/)).toHaveTextContent('2099-10-20')
-    expect(screen.queryByText('Next earnings date not yet confirmed')).not.toBeInTheDocument()
+    await screen.findByRole('heading', { name: 'Apple fixture' })
+    expect(screen.getByText('Next earnings date not yet confirmed.')).toBeInTheDocument()
+    expect(screen.queryByText(/2099-10-20/)).not.toBeInTheDocument()
+  })
+  it('uses only the server projection, independent of raw events, chart and research', async () => {
+    const evidence = 'Company will report financial results on October 27, 2026 after market close.'
+    vi.mocked(api.getStockDetail).mockResolvedValue({ ...stock, events: [{ ...event, event_type: 'earnings', status: 'scheduled', title: 'Quarterly earnings results', released_at: null, scheduled_at: '2099-10-20T20:00:00Z' }], next_earnings: {
+      symbol: 'AAPL', event_kind: 'results_release', event_date: '2026-10-27', session: 'amc', scheduled_time_precision: 'session', scheduled_at: null, event_timezone: null, days_until: 11, countdown_basis: 'calendar_days', fiscal_period: null, verification_status: 'verified', verification_scope: 'explicit_official_announcement', event_ids: ['saved'],
+      evidence: [{ event_id: 'saved', source: 'company_ir_rss', source_url: 'https://investor.apple.com/announcement', source_document_id: 'saved-doc', source_content_hash: 'a'.repeat(64), retrieved_at: '2026-10-16T12:00:00Z', evidence_span: { field: 'body', start: 0, end: evidence.length, text: evidence } }],
+    } })
+    mount()
+    expect(await screen.findByText('2026-10-27')).toBeVisible()
+    expect(screen.getByText('After market close')).toBeVisible()
+    expect(screen.queryByText(/2099-10-20/)).not.toBeInTheDocument()
+    expect(screen.getByText('$0.00')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Price history' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'What You Need to Know' })).toBeInTheDocument()
+    expect(api.getStockDetail).toHaveBeenCalledTimes(1)
+    expect(api.getEarnings).not.toHaveBeenCalled()
+    expect(api.getEvents).not.toHaveBeenCalled()
+  })
+  it('keeps research and chart available when the stock-detail request fails', async () => {
+    vi.mocked(api.getStockDetail).mockRejectedValue(new Error('Offline'))
+    mount()
+    expect(await screen.findByText('Next earnings information could not be loaded.')).toBeVisible()
+    expect(screen.queryByText('Next earnings date not yet confirmed.')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Price history' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'What You Need to Know' })).toBeInTheDocument()
   })
 })

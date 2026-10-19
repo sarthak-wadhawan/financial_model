@@ -4,6 +4,8 @@
 
 ## NEXT ACTION
 
+**2026-10-19 STOP checkpoint:** user requested only a portable checkpoint/push. Read `WORK_CHECKPOINT.md` for exact accepted leaves, interrupted source/security WIP, completed-but-unreviewed earnings UI, and resume commands. No3000/8000 listener currently exists. Do not resume engineering until authorized; main remains unchanged and no Phase12. Earlier progress notes below are historical where superseded.
+
 **New user authorization: Phase≤11 UX/data-completeness overhaul on `work/trading-copilot-ux`.** Resume `WORK_CHECKPOINT.md` and the final UX extension of `current_task_graph.md`; R1 below remains the baseline, not an overhaul completion claim. Initial plan/checkpoint must be pushed before implementation; checkpoint each verified node. No Phase12; no main merge until final gates.
 
 UX progress: UX1 shell/navigation/search/theme PASS; **UX2a SEC identity leaf PASS** after provider/security review and clean-restarted normal-runtime verification for all5 target stocks; **interactive chart leaf PASS** after real desktop/mobile light/dark recheck. Full UX2/UX3 and UX4–UX9 remain incomplete. Resume `WORK_CHECKPOINT.md`, not the earlier R1 HOLD instruction below. No main merge or Phase12.

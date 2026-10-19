@@ -6,6 +6,7 @@ Unsafe fixture/default-time paths are deliberately not used in real mode.
 from datetime import datetime, timedelta, timezone
 import hashlib
 import re
+from urllib.parse import urlsplit, parse_qsl
 from trading_copilot.models.events import MarketEvent, EventType, EventStatus
 from trading_copilot.providers.filing_provider import SECFilingProvider
 from trading_copilot.providers.earnings_intelligence import EarningsIntelligenceProvider
@@ -78,7 +79,40 @@ class DatedIRProvider(IRReleaseProvider):
         super().__init__(*args, **kwargs)
         self.linked_body_budget = 4
 
+    @staticmethod
+    def safe_source_url(url):
+        try:
+            parsed = urlsplit(url)
+            return bool(parsed.scheme in ("https", "http") and parsed.hostname and
+                        not parsed.username and not parsed.password and
+                        parsed.port in (None, 80, 443) and
+                        not any(re.search(r"password|secret|token|api.?key|credential|authorization|signature", key, re.I)
+                                for key, _ in parse_qsl(parsed.query)) and
+                        not parsed.fragment)
+        except (ValueError, TypeError):
+            return False
+
+    def _error(self, symbol, stage, source_id, exc):
+        # Feed-controlled IDs and HTTP exception strings may contain credentials.
+        self.errors.append({"symbol": symbol, "stage": stage,
+                            "source_id": hashlib.sha256(str(source_id).encode()).hexdigest()[:24],
+                            "error": type(exc).__name__, "message": "IR source request rejected or failed"})
+
+    def _fetch_feed(self, symbol, feed_url, from_date, to_date):
+        if not self.safe_source_url(feed_url):
+            raise ValueError("Unsafe IR feed URL")
+        documents = super()._fetch_feed(symbol, feed_url, from_date, to_date)
+        return [document for document in documents
+                if self.safe_source_url(document.metadata.get("feed_response_url", ""))]
+
     def _parse_entry(self, symbol, entry, from_date, to_date):
+        # Validate before linked fetch, title fallback, or any raw document emission.
+        link = entry.get("link", "")
+        identity = str(entry.get("id") or link)
+        if (not self.safe_source_url(link) or not self.safe_source_url(self.feeds.get(symbol, "")) or
+                ("://" in identity and not self.safe_source_url(identity))):
+            self._error(symbol, "parse_entry", identity, ValueError("Unsafe IR source URL"))
+            return None
         # FeedParserDict.get/__getitem__ can alias absent updated_parsed to
         # published_parsed. Only underlying supplied keys establish provenance.
         supplied = dict(entry.items())
@@ -273,7 +307,7 @@ class WebsiteSourceAdapter:
             provider.close()
 
     def _releases(self, symbols, name):
-        from trading_copilot.providers.official_earnings_schedule import reconcile_schedule_revision
+        from trading_copilot.providers.official_earnings_schedule import reconcile_schedule_revision, reinstatement_evidence
         provider = (WebsiteSECExhibitProvider(user_agent=self.settings.sec_user_agent) if name == "sec_exhibits"
                     else DatedIRProvider(timeout=10))
         try:
@@ -301,8 +335,12 @@ class WebsiteSourceAdapter:
                 revisions = []
                 prior = known.get(schedule.source_id) if schedule else None
                 superseded = bool(prior and prior.metadata.get("revision_evidence", {}).get("source_document_id")
-                                  not in (None, document.document_id) and
-                                  prior.metadata.get("source_content_hash") == document.content_hash)
+                                  not in (None, document.document_id))
+                if superseded:
+                    evidence = reinstatement_evidence(document, schedule, prior, list(known.values()))
+                    if evidence:
+                        superseded = False
+                        schedule.metadata["reinstatement_evidence"] = evidence
                 if name == "ir_releases" and not superseded:
                     revisions = reconcile_schedule_revision(document, schedule, list(known.values()))
                     for revision in revisions:
